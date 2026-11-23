@@ -69,6 +69,11 @@ namespace Eikon::Core::Support
         if (!v || !v->IsString()) return std::nullopt;
         return v->AsString();
     }
+    inline bool FiniteCoordinate(double value) noexcept
+    {
+        return std::isfinite(value) && std::fabs(value) <= 1e7;
+    }
+
     inline JsonValue RectJson(Rect const& r)
     {
         JsonValue j = JsonValue::Object();
@@ -83,7 +88,10 @@ namespace Eikon::Core::Support
         auto const* v = json.Find(key);
         if (!v || !v->IsObject()) return std::nullopt;
         auto x = GetNumber(*v, L"x1"), y = GetNumber(*v, L"y1"), w = GetNumber(*v, L"width"), h = GetNumber(*v, L"height");
-        if (!x || !y || !w || !h) return std::nullopt;
+        if (!x || !y || !w || !h || !FiniteCoordinate(*x) || !FiniteCoordinate(*y) || !FiniteCoordinate(*w) || !FiniteCoordinate(*h))
+        {
+            return std::nullopt;
+        }
         return Rect{ *x, *y, *w, *h };
     }
 

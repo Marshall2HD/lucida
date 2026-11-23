@@ -525,6 +525,7 @@ TEST(ObjConceal_PendingTextModesFailClosedThenSettle)
     for (std::wstring const& mode : { std::wstring{ L"pixelate-text" }, std::wstring{ L"erase-text" } })
     {
         ObjConceal conceal;
+        conceal.state = std::wstring{ ObjectState::Unselected };
         conceal.rect = { 0, 0, 20, 10 };
         conceal.fillMode = mode;
         auto const pending = conceal.Concealed(source, 1);

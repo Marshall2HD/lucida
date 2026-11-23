@@ -15,7 +15,7 @@ namespace Eikon::Core
         double Number(JsonValue const& object, std::wstring_view key, bool& ok)
         {
             auto const* value = object.Find(key);
-            if (!value || !value->IsNumber() || !std::isfinite(value->AsNumber()))
+            if (!value || !value->IsNumber() || !Support::FiniteCoordinate(value->AsNumber()))
             {
                 ok = false;
                 return 0;
