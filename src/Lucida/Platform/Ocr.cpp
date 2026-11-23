@@ -82,13 +82,13 @@ namespace Lucida
     }
 
     winrt::fire_and_forget RecognizeWordBoxes(std::vector<std::uint8_t> bgra, std::int32_t width, std::int32_t height,
-                                              std::function<void(std::vector<Core::Rect>)> done)
+                                              std::function<void(std::optional<std::vector<Core::Rect>>)> done)
     {
         using namespace winrt::Windows::Graphics::Imaging;
         using namespace winrt::Windows::Media::Ocr;
 
         winrt::apartment_context caller;
-        std::vector<Core::Rect> boxes;
+        std::optional<std::vector<Core::Rect>> resultBoxes;
         try
         {
             co_await winrt::resume_background();
@@ -103,6 +103,7 @@ namespace Lucida
                 buffer.Length(static_cast<std::uint32_t>(bgra.size()));
                 bitmap.CopyFromBuffer(buffer);
                 OcrResult const result = co_await engine.RecognizeAsync(bitmap);
+                std::vector<Core::Rect> boxes;
                 for (auto const& line : result.Lines())
                 {
                     for (auto const& word : line.Words())
@@ -111,16 +112,17 @@ namespace Lucida
                         boxes.push_back({ r.X, r.Y, r.Width, r.Height });
                     }
                 }
+                resultBoxes = std::move(boxes);
             }
         }
         catch (...)
         {
-            boxes.clear();
+            resultBoxes.reset();
         }
         co_await caller;
         if (done)
         {
-            done(std::move(boxes));
+            done(std::move(resultBoxes));
         }
     }
 }

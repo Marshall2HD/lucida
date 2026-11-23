@@ -74,9 +74,6 @@
                         <ComboBoxItem x:Uid="Prefs_NotifyNone" Tag="none" />
                     </ComboBox>
                 </local:SettingsCard>
-                <local:SettingsCard x:Uid="Prefs_Deeplinks">
-                    <ToggleSwitch x:Name="DeeplinksToggle" Toggled="Toggle_Toggled" />
-                </local:SettingsCard>
             </StackPanel>
         </ScrollViewer>
     </Grid>

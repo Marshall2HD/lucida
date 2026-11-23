@@ -18,6 +18,7 @@
 #include "Core/Snapping.h"
 #include "Editor/Cursors.h"
 #include "Editor/RenderObjects.h"
+#include "Strings.h"
 
 #include <cmath>
 
@@ -177,6 +178,7 @@ namespace Lucida::Editor
 
     void ShotView::SetDocument(std::shared_ptr<Core::Document> document, bool keepWindowSize)
     {
+        if (m_host.endTextEdit) m_host.endTextEdit();
         if (m_document)
         {
             Render::ClearOcrCache(m_document->ImageGeneration());
@@ -650,6 +652,7 @@ namespace Lucida::Editor
         {
             return;
         }
+        if (m_host.endTextEdit) m_host.endTextEdit();
         try
         {
             // Everything drawn at one image pixel per pixel: the image and the canvas growth.
@@ -659,6 +662,7 @@ namespace Lucida::Editor
             if (!Core::TryBitmapBytes(width, height))
             {
                 OutputDebugStringW(L"Lucida: rasterizing output is too large\n");
+                if (m_host.alert) m_host.alert(Strings::Get(L"Editor_WrongTitle"), Strings::Get(L"Editor_WrongMessage"));
                 return;
             }
             auto device = canvas::CanvasDevice::GetSharedDevice();
@@ -667,16 +671,20 @@ namespace Lucida::Editor
             {
                 // Compose uses legal 2-D tiles and is the safe flattening path for
                 // captures which cannot be represented by one CanvasRenderTarget.
-                if (auto flat = Compose(*m_document, ComposeOptions{ .ignoreBackdrop = true }))
+                auto flat = Compose(*m_document, ComposeOptions{ .ignoreBackdrop = true });
+                if (!flat || flat->IsEmpty())
                 {
-                    m_objects.Deselect();
-                    m_document->ReplaceObjects({});
-                    Render::ClearOcrCache(m_document->ImageGeneration());
-                    m_document->ReplaceImage(Core::Bitmap{ *flat }, { 0, 0 });
-                    RefreshCanvas();
-                    RecordUndo();
-                    Changed();
+                    if (m_host.alert) m_host.alert(Strings::Get(L"Editor_WrongTitle"), Strings::Get(L"Editor_WrongMessage"));
+                    return;
                 }
+                Core::Rect const crop = m_document->Crop();
+                m_objects.Deselect();
+                m_document->ReplaceObjects({});
+                Render::ClearOcrCache(m_document->ImageGeneration());
+                m_document->ReplaceImage(Core::Bitmap{ *flat }, { -crop.x, -crop.y });
+                RefreshCanvas();
+                RecordUndo();
+                Changed();
                 return;
             }
             canvas::CanvasRenderTarget target{ device, static_cast<float>(width), static_cast<float>(height), 96.0f };
@@ -748,6 +756,7 @@ namespace Lucida::Editor
 
     void ShotView::Restore(std::wstring const& full)
     {
+        if (m_host.endTextEdit) m_host.endTextEdit();
         auto const snapshot = Core::UndoSnapshot::Parse(full);
         if (!snapshot || !m_document)
         {
@@ -789,6 +798,7 @@ namespace Lucida::Editor
         {
             return;
         }
+        if (m_host.endTextEdit) m_host.endTextEdit();
         if (m_undoTimer.IsRunning())
         {
             RecordUndo();
@@ -805,6 +815,7 @@ namespace Lucida::Editor
         {
             return;
         }
+        if (m_host.endTextEdit) m_host.endTextEdit();
         if (auto const full = m_document->History().StepForward())
         {
             Restore(*full);

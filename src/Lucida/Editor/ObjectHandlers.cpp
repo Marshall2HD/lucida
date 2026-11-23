@@ -319,9 +319,17 @@ namespace Lucida::Editor
 
     void ObjectHandlers::CancelDrag()
     {
-        if (auto* object = Find(m_dragId); object && m_dragPart == Core::ObjectState::Creating)
+        if (auto* object = Find(m_dragId))
         {
-            m_document->Remove(object->id);
+            if (m_dragPart == Core::ObjectState::Creating)
+            {
+                m_document->Remove(object->id);
+            }
+            else
+            {
+                object->rect = m_downRect;
+                object->state = m_active == object->id ? std::wstring{ Core::ObjectState::Selected } : std::wstring{};
+            }
         }
         m_dragId.reset();
         m_dragPart.clear();

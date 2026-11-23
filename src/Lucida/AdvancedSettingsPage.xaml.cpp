@@ -100,7 +100,6 @@ namespace winrt::Lucida::implementation
             EscSaveCheck().IsChecked(settings.SaveOnEsc());
             auto const type = settings.NotificationType();
             ConfirmationCombo().SelectedIndex(type == L"system" ? 1 : type == L"none" ? 2 : 0);
-            DeeplinksToggle().IsOn(::Lucida::Secrets::Current().AllowDeeplinks());
         }
         catch (...)
         {
@@ -145,8 +144,6 @@ namespace winrt::Lucida::implementation
         else if (toggle == ZoomDirectionToggle()) settings.AltZoomDirection(on);
         else if (toggle == ReverseAutoscrollToggle()) settings.ScrollingReverseAutoscroll(on);
         else if (toggle == PreferLargeToggle()) settings.PreferLargeWindow(on);
-        // Kept in the encrypted store so another app cannot switch it on.
-        else if (toggle == DeeplinksToggle()) ::Lucida::Secrets::Current().AllowDeeplinks(on);
     }
 
     void AdvancedSettingsPage::EscCheck_Click(winrt::Windows::Foundation::IInspectable const& sender, winrt::RoutedEventArgs const&)

@@ -33,6 +33,15 @@ namespace Lucida::Editor::BackdropRender
 
         canvas::CanvasBitmap MakeBitmap(canvas::ICanvasResourceCreator const& device, Core::Bitmap const& bitmap)
         {
+            if (bitmap.IsEmpty())
+            {
+                return nullptr;
+            }
+            int const maxSize = device.Device().MaximumBitmapSizeInPixels();
+            if (bitmap.width > maxSize || bitmap.height > maxSize)
+            {
+                return nullptr;
+            }
             return canvas::CanvasBitmap::CreateFromBytes(device, winrt::array_view<std::uint8_t const>(bitmap.pixels),
                 bitmap.width, bitmap.height, winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized,
                 96.0f, canvas::CanvasAlphaMode::Premultiplied);
@@ -224,6 +233,10 @@ namespace Lucida::Editor::BackdropRender
                 return;
             }
             canvas::CanvasBitmap const full = MakeBitmap(cache.device, *image);
+            if (!full)
+            {
+                return;
+            }
             if (blur <= 0)
             {
                 cache.image = full;
@@ -338,13 +351,16 @@ namespace Lucida::Editor::BackdropRender
             else
             {
                 canvas::CanvasBitmap const& mesh = Mesh(cache, config);
-                if (forExport)
+                if (mesh)
                 {
-                    DrawExportMesh(ds, mesh, w, h);
-                }
-                else
-                {
-                    ds.DrawImage(mesh, bounds, AspectFillSource(mesh.Bounds(), w, h), 1.0f, canvas::CanvasImageInterpolation::Linear);
+                    if (forExport)
+                    {
+                        DrawExportMesh(ds, mesh, w, h);
+                    }
+                    else
+                    {
+                        ds.DrawImage(mesh, bounds, AspectFillSource(mesh.Bounds(), w, h), 1.0f, canvas::CanvasImageInterpolation::Linear);
+                    }
                 }
             }
             ds.Close();
@@ -352,24 +368,28 @@ namespace Lucida::Editor::BackdropRender
 
         // Grain (lnoise): the 256 × 256 tile in overlay blend at opacity `noise`.
         effects::BorderEffect tiledGrain;
-        tiledGrain.Source(Grain(cache));
-        tiledGrain.ExtendX(canvas::CanvasEdgeBehavior::Wrap);
-        tiledGrain.ExtendY(canvas::CanvasEdgeBehavior::Wrap);
         effects::CropEffect grain;
-        grain.Source(tiledGrain);
-        grain.SourceRectangle(bounds);
         effects::BlendEffect overlay;
-        overlay.Mode(effects::BlendEffectMode::Overlay);
-        overlay.Background(base);
-        overlay.Foreground(grain);
-        float const noise = static_cast<float>(std::clamp(config.noise, 0.0, 1.0));
         effects::ArithmeticCompositeEffect grained;
-        grained.Source1(overlay);
-        grained.Source2(base);
-        grained.MultiplyAmount(0);
-        grained.Source1Amount(noise);
-        grained.Source2Amount(1 - noise);
-        grained.Offset(0);
+        auto const& grainBitmap = Grain(cache);
+        if (grainBitmap)
+        {
+            tiledGrain.Source(grainBitmap);
+            tiledGrain.ExtendX(canvas::CanvasEdgeBehavior::Wrap);
+            tiledGrain.ExtendY(canvas::CanvasEdgeBehavior::Wrap);
+            grain.Source(tiledGrain);
+            grain.SourceRectangle(bounds);
+            overlay.Mode(effects::BlendEffectMode::Overlay);
+            overlay.Background(base);
+            overlay.Foreground(grain);
+            float const noise = static_cast<float>(std::clamp(config.noise, 0.0, 1.0));
+            grained.Source1(overlay);
+            grained.Source2(base);
+            grained.MultiplyAmount(0);
+            grained.Source1Amount(noise);
+            grained.Source2Amount(1 - noise);
+            grained.Offset(0);
+        }
 
         // Outer corners: masksToBounds with cornerRadius = outerPx.
         canvas::CanvasActiveLayer clip{ nullptr };
@@ -382,7 +402,14 @@ namespace Lucida::Editor::BackdropRender
         {
             clip = session.CreateLayer(1.0f, bounds);
         }
-        session.DrawImage(grained);
+        if (grainBitmap)
+        {
+            session.DrawImage(grained);
+        }
+        else
+        {
+            session.DrawImage(base);
+        }
 
         // Shadow group: the stacked shadow layers, black bodies, masked by the noise tile.
         auto const base_ = bd::BaseColor(colors, stops);
@@ -417,14 +444,21 @@ namespace Lucida::Editor::BackdropRender
                 }
                 ds.Close();
             }
-            effects::BorderEffect tiledMask;
-            tiledMask.Source(Mask(cache));
-            tiledMask.ExtendX(canvas::CanvasEdgeBehavior::Wrap);
-            tiledMask.ExtendY(canvas::CanvasEdgeBehavior::Wrap);
-            effects::AlphaMaskEffect masked;
-            masked.Source(group);
-            masked.AlphaMask(tiledMask);
-            session.DrawImage(masked);
+            if (auto const& maskBitmap = Mask(cache))
+            {
+                effects::BorderEffect tiledMask;
+                tiledMask.Source(maskBitmap);
+                tiledMask.ExtendX(canvas::CanvasEdgeBehavior::Wrap);
+                tiledMask.ExtendY(canvas::CanvasEdgeBehavior::Wrap);
+                effects::AlphaMaskEffect masked;
+                masked.Source(group);
+                masked.AlphaMask(tiledMask);
+                session.DrawImage(masked);
+            }
+            else
+            {
+                session.DrawImage(group);
+            }
         }
         clip.Close();
     }

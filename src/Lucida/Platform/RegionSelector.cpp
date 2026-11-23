@@ -6,6 +6,7 @@
 #include "Platform/ScreenCapture.h"
 
 #include <wil/com.h>
+#include <wil/resource.h>
 #include <d2d1_1.h>
 #include <d3d11.h>
 #include <dcomp.h>
@@ -614,12 +615,24 @@ namespace Lucida::Platform
 
             void RecoverGraphics()
             {
+                if (m_recovering || m_recoveryAttempts >= 3)
+                {
+                    Log(L"RegionSelector: graphics recovery aborted");
+                    ResetGraphics();
+                    return;
+                }
+                m_recovering = true;
+                ++m_recoveryAttempts;
+                auto clearFlag = wil::scope_exit([this] { m_recovering = false; });
                 Log(L"RegionSelector: recreating graphics device");
                 ResetGraphics();
                 if (CreateDevice() && m_monitor.handle)
                 {
                     ResizeSwapChain(m_monitor.bounds.right - m_monitor.bounds.left, m_monitor.bounds.bottom - m_monitor.bounds.top);
-                    Invalidate();
+                    if (m_swapChain && m_width > 0)
+                    {
+                        Invalidate();
+                    }
                 }
             }
 
@@ -744,6 +757,10 @@ namespace Lucida::Platform
                 {
                     Log(L"RegionSelector: Present failed");
                     RecoverGraphics();
+                }
+                else
+                {
+                    m_recoveryAttempts = 0;
                 }
             }
 
@@ -888,6 +905,8 @@ namespace Lucida::Platform
             std::optional<ScreenCapture::WindowInfo> m_highlight;
             std::wstring m_status;
             int m_activationAttempt = 0;
+            bool m_recovering = false;
+            int m_recoveryAttempts = 0;
             int m_width = 0;
             int m_height = 0;
             double m_textScale = 0;

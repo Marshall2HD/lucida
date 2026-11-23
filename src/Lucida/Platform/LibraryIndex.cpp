@@ -5,7 +5,10 @@
 #include "Platform/ImageCodec.h"
 #include "Platform/Ocr.h"
 
+#include <wil/resource.h>
+
 #include <fstream>
+#include <limits>
 #include <mutex>
 #include <thread>
 
@@ -35,7 +38,9 @@ namespace Lucida
         {
             std::wstring const base = folder.native();
             std::wstring const path = candidate.native();
-            if (path.size() < base.size() || CompareStringOrdinal(path.data(), static_cast<int>(path.size()), base.data(), static_cast<int>(base.size()), TRUE) != CSTR_EQUAL)
+            if (base.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)()) ||
+                path.size() < base.size() ||
+                CompareStringOrdinal(path.data(), static_cast<int>(base.size()), base.data(), static_cast<int>(base.size()), TRUE) != CSTR_EQUAL)
             {
                 return false;
             }
@@ -62,6 +67,10 @@ namespace Lucida
                 return std::nullopt;
             }
             auto const item = folder / name;
+            if (IsReparsePoint(folder) || IsReparsePoint(item))
+            {
+                return std::nullopt;
+            }
             auto const resolved = std::filesystem::weakly_canonical(item, error);
             if (error || !IsWithinFolder(canonicalFolder, resolved))
             {
@@ -73,6 +82,51 @@ namespace Lucida
         std::wstring JoinPath(std::wstring const& folder, std::wstring const& name)
         {
             return (std::filesystem::path{ folder } / name).wstring();
+        }
+
+        void WriteDatabaseFile(std::wstring const& folder, std::string const& content)
+        {
+            if (folder.empty() || IsReparsePoint(folder))
+            {
+                return;
+            }
+            auto const target = JoinPath(folder, Lib::kDatabaseName);
+            auto const temp = target + L".tmp";
+            if (IsReparsePoint(target) || IsReparsePoint(temp))
+            {
+                return;
+            }
+            wil::unique_hfile file{ ::CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                                  FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr) };
+            if (!file)
+            {
+                return;
+            }
+            BY_HANDLE_FILE_INFORMATION info{};
+            if (!::GetFileInformationByHandle(file.get(), &info) || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+            {
+                file.reset();
+                ::DeleteFileW(temp.c_str());
+                return;
+            }
+            std::size_t offset = 0;
+            while (offset < content.size())
+            {
+                DWORD const chunk = static_cast<DWORD>((std::min)(content.size() - offset, std::size_t{ 1 } << 20));
+                DWORD written = 0;
+                if (!::WriteFile(file.get(), content.data() + offset, chunk, &written, nullptr) || written == 0)
+                {
+                    file.reset();
+                    ::DeleteFileW(temp.c_str());
+                    return;
+                }
+                offset += written;
+            }
+            file.reset();
+            if (!::MoveFileExW(temp.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+            {
+                ::DeleteFileW(temp.c_str());
+            }
         }
 
         bool SameName(std::wstring_view a, std::wstring_view b)
@@ -566,25 +620,7 @@ namespace Lucida
         {
             return;
         }
-        auto const content = Lib::EncodeDatabase(m_records);
-        auto const target = JoinPath(m_folder, Lib::kDatabaseName);
-        auto const temp = target + L".tmp";
-        {
-            std::ofstream file{ std::filesystem::path{ temp }, std::ios::binary | std::ios::trunc };
-            if (!file)
-            {
-                return;
-            }
-            file.write(content.data(), static_cast<std::streamsize>(content.size()));
-            if (!file)
-            {
-                return;
-            }
-        }
-        if (!MoveFileExW(temp.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-        {
-            DeleteFileW(temp.c_str());
-        }
+        WriteDatabaseFile(m_folder, Lib::EncodeDatabase(m_records));
     }
 
     void LibraryIndex::Run(std::vector<std::wstring> files)
@@ -705,23 +741,7 @@ namespace Lucida
         Raise();
         auto const content = Lib::EncodeDatabase(m_records);
         co_await winrt::resume_background();
-        {
-            auto const target = JoinPath(folder, Lib::kDatabaseName);
-            auto const temp = target + L".tmp";
-            bool written = false;
-            {
-                std::ofstream file{ std::filesystem::path{ temp }, std::ios::binary | std::ios::trunc };
-                if (file)
-                {
-                    file.write(content.data(), static_cast<std::streamsize>(content.size()));
-                    written = static_cast<bool>(file);
-                }
-            }
-            if (!written || !MoveFileExW(temp.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-            {
-                DeleteFileW(temp.c_str());
-            }
-        }
+        WriteDatabaseFile(folder, content);
         co_await wil::resume_foreground(dispatcher);
         m_phase = Phase::Idle;
         m_cancel.reset();

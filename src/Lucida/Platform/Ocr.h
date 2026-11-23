@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace Lucida
@@ -24,9 +25,9 @@ namespace Lucida
 
     // The word rectangles (in the image's pixels) of a BGRA8 premultiplied image, for the "-text"
     // conceal modes. Recognises off the UI thread and calls `done` back on the
-    // calling thread; an empty list when OCR is unavailable or finds nothing.
+    // calling thread; std::nullopt when OCR failed/unavailable/oversized, empty vector when no words exist.
     winrt::fire_and_forget RecognizeWordBoxes(std::vector<std::uint8_t> bgra, std::int32_t width, std::int32_t height,
-                                              std::function<void(std::vector<Core::Rect>)> done);
+                                              std::function<void(std::optional<std::vector<Core::Rect>>)> done);
     namespace Ocr
     {
         // Creates the engines for primaryOCRLang and runs each once, off the UI thread.

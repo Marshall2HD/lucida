@@ -33,6 +33,7 @@ namespace Lucida::Editor
             std::function<void(Core::ProtoObject&)> editText;   // open the text editor on an ObjText
             std::function<void(winrt::Microsoft::UI::Input::PointerPoint const&)> dragOut;   // Ctrl+Alt + drag: the file drag-out
             std::function<void(std::wstring const&, std::wstring const&)> alert;   // modal alert (title, text, OK)
+            std::function<void()> endTextEdit;       // commit any open ObjText edit before document/object replacement
         };
 
         ShotView(winrt::Microsoft::Graphics::Canvas::UI::Xaml::CanvasControl const& canvas, Host host);

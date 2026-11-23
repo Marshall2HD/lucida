@@ -107,6 +107,11 @@ namespace Lucida::Editor::Render
             {
                 return nullptr;
             }
+            int const maxSize = device.Device().MaximumBitmapSizeInPixels();
+            if (bitmap->width > maxSize || bitmap->height > maxSize)
+            {
+                return nullptr;
+            }
             for (auto it = cache.begin(); it != cache.end();)
             {
                 it = it->second.source.expired() ? cache.erase(it) : std::next(it);
@@ -134,9 +139,15 @@ namespace Lucida::Editor::Render
                 return std::tie(imageGeneration, x, y, w, h) < std::tie(o.imageGeneration, o.x, o.y, o.w, o.h);
             }
         };
-        std::map<OcrKey, std::optional<std::vector<Core::Rect>>>& OcrCache()
+        enum class OcrState { Pending, Ready, Failed };
+        struct OcrEntry
         {
-            static std::map<OcrKey, std::optional<std::vector<Core::Rect>>> cache;
+            OcrState state = OcrState::Pending;
+            std::vector<Core::Rect> boxes;
+        };
+        std::map<OcrKey, OcrEntry>& OcrCache()
+        {
+            static std::map<OcrKey, OcrEntry> cache;
             return cache;
         }
         std::set<std::uint64_t>& ActiveOcrGenerations()
@@ -173,22 +184,29 @@ namespace Lucida::Editor::Render
                     auto it = cache.find(key);
                     if (it == cache.end() && w > 0 && h > 0 && Core::TryBitmapBytes(w, h))
                     {
-                        cache[key] = std::nullopt;
+                        cache[key] = OcrEntry{ OcrState::Pending, {} };
                         std::vector<std::uint8_t> crop(*Core::TryBitmapBytes(w, h));
                         for (int row = 0; row < h; ++row)
                             std::memcpy(crop.data() + static_cast<std::size_t>(row) * w * 4,
                                         image->pixels.data() + image->Stride() * static_cast<std::size_t>(y + row) + static_cast<std::size_t>(x) * 4,
                                         static_cast<std::size_t>(w) * 4);
-                        Lucida::RecognizeWordBoxes(std::move(crop), w, h, [key](std::vector<Core::Rect> boxes) {
+                        Lucida::RecognizeWordBoxes(std::move(crop), w, h, [key](std::optional<std::vector<Core::Rect>> boxes) {
                             // The completion runs later; never cache or redraw a closed/replaced image.
                             if (!ActiveOcrGenerations().contains(key.imageGeneration)) return;
-                            OcrCache()[key] = std::move(boxes);
-                            if (Redraw()) Redraw()();
+                            if (boxes)
+                            {
+                                OcrCache()[key] = OcrEntry{ OcrState::Ready, std::move(*boxes) };
+                                if (Redraw()) Redraw()();
+                            }
+                            else
+                            {
+                                OcrCache()[key] = OcrEntry{ OcrState::Failed, {} };
+                            }
                         });
                     }
-                    else if (it != cache.end() && it->second)
+                    else if (it != cache.end() && it->second.state == OcrState::Ready)
                     {
-                        const_cast<Core::ObjConceal&>(conceal).SetTextBoxes(*area, *it->second);
+                        const_cast<Core::ObjConceal&>(conceal).SetTextBoxes(*area, it->second.boxes);
                     }
                 }
                 if (auto const bitmap = conceal.Concealed(*image, context.dpr))
@@ -255,7 +273,7 @@ namespace Lucida::Editor::Render
             blend.Mode(look.blend == Core::HighlighterLook::Blend::Multiply ? effects::BlendEffectMode::Multiply : effects::BlendEffectMode::Screen);
             effects::Transform2DEffect background;
             background.Source(context.image);
-            background.TransformMatrix(winrt::Windows::Foundation::Numerics::make_float3x2_translation(F(-context.sourceOrigin.x), F(-context.sourceOrigin.y)));
+            background.TransformMatrix(winrt::Windows::Foundation::Numerics::make_float3x2_translation(F(context.sourceOrigin.x), F(context.sourceOrigin.y)));
             blend.Background(background);
             blend.Foreground(ink);
             auto layer = session.CreateLayer(F(look.opacity), shape);

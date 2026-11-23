@@ -166,6 +166,10 @@ namespace Lucida::ImageCodec
         // WIC fallback: prepend a BITMAPFILEHEADER and let the BMP decoder handle it.
         Bytes DecodeWithWic(IWICImagingFactory* factory, std::span<std::uint8_t const> dib, std::size_t pixelOffset) noexcept
         {
+            if (dib.size() > Core::kMaxInputBytes || pixelOffset > dib.size())
+            {
+                return {};
+            }
             BITMAPFILEHEADER fileHeader{};
             fileHeader.bfType = 0x4D42; // "BM"
             fileHeader.bfSize = static_cast<DWORD>(sizeof(BITMAPFILEHEADER) + dib.size());
@@ -200,6 +204,15 @@ namespace Lucida::ImageCodec
             {
                 return {};
             }
+            UINT width = 0;
+            UINT height = 0;
+            if (FAILED(frame->GetSize(&width, &height)) ||
+                width > static_cast<UINT>((std::numeric_limits<int>::max)()) ||
+                height > static_cast<UINT>((std::numeric_limits<int>::max)()) ||
+                !Core::TryBitmapBytes(static_cast<int>(width), static_cast<int>(height)))
+            {
+                return {};
+            }
             return EncodePng(factory, frame.get());
         }
     }
@@ -208,7 +221,7 @@ namespace Lucida::ImageCodec
     {
         try
         {
-            if (dib.size() < sizeof(BITMAPINFOHEADER))
+            if (dib.size() < sizeof(BITMAPINFOHEADER) || dib.size() > Core::kMaxInputBytes)
             {
                 return {};
             }
@@ -278,11 +291,14 @@ namespace Lucida::ImageCodec
 
             const std::uint64_t stride = ((static_cast<std::uint64_t>(width) * bpp + 31) / 32) * 4;
             const std::uint64_t pixelBytes = stride * height;
-            if (pixelBytes > 0x7FFFFFFF || static_cast<std::uint64_t>(width) * height * 4 > 0x7FFFFFFF)
+            if (width > static_cast<std::uint32_t>((std::numeric_limits<int>::max)()) ||
+                height > static_cast<std::uint32_t>((std::numeric_limits<int>::max)()) ||
+                !Core::TryBitmapBytes(static_cast<int>(width), static_cast<int>(height)) ||
+                pixelBytes > Core::kMaxImageBytes)
             {
                 return {};
             }
-            if (pixelOffset + pixelBytes > dib.size())
+            if (pixelOffset > dib.size() || pixelBytes > dib.size() - pixelOffset)
             {
                 return {};
             }
@@ -302,6 +318,12 @@ namespace Lucida::ImageCodec
             const bool bitfields = header.biCompression != BI_RGB;
             if (bitfields)
             {
+                std::size_t const needMasks =
+                    (headerSize >= sizeof(BITMAPINFOHEADER) + 16 || header.biCompression == BiAlphaBitfields) ? 16 : 12;
+                if (sizeof(BITMAPINFOHEADER) + needMasks > dib.size())
+                {
+                    return {};
+                }
                 std::uint8_t const* masks = dib.data() + sizeof(BITMAPINFOHEADER); // same offset for V4/V5 headers
                 redMask = ReadU32(masks);
                 greenMask = ReadU32(masks + 4);
@@ -366,7 +388,7 @@ namespace Lucida::ImageCodec
     {
         try
         {
-            if (png.empty())
+            if (png.empty() || png.size() > Core::kMaxInputBytes)
             {
                 return {};
             }
@@ -403,12 +425,18 @@ namespace Lucida::ImageCodec
             {
                 return {};
             }
-            const std::uint64_t stride = static_cast<std::uint64_t>(width) * 4;
-            const std::uint64_t imageSize = stride * height;
-            if (imageSize > 0x7FFFFFFF)
+            if (width > static_cast<UINT>((std::numeric_limits<int>::max)()) ||
+                height > static_cast<UINT>((std::numeric_limits<int>::max)()))
             {
                 return {};
             }
+            auto const imageBytes = Core::TryBitmapBytes(static_cast<int>(width), static_cast<int>(height));
+            if (!imageBytes)
+            {
+                return {};
+            }
+            const std::uint64_t stride = static_cast<std::uint64_t>(width) * 4;
+            const std::uint64_t imageSize = *imageBytes;
 
             Bytes topDown(static_cast<std::size_t>(imageSize));
             if (FAILED(converted->CopyPixels(nullptr, static_cast<UINT>(stride), static_cast<UINT>(imageSize), topDown.data())))

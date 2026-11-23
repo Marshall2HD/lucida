@@ -10,6 +10,7 @@
 #include <shobjidl.h>
 
 #include <cstring>
+#include <limits>
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "comdlg32.lib")
@@ -303,15 +304,23 @@ namespace Lucida::Exporter
             }
             UINT width = 0;
             UINT height = 0;
-            if (FAILED(converted->GetSize(&width, &height)) || width == 0 || height == 0)
+            if (FAILED(converted->GetSize(&width, &height)) || width == 0 || height == 0 ||
+                width > static_cast<UINT>((std::numeric_limits<int>::max)()) ||
+                height > static_cast<UINT>((std::numeric_limits<int>::max)()))
+            {
+                return {};
+            }
+            auto const bytes = Core::TryBitmapBytes(static_cast<int>(width), static_cast<int>(height));
+            auto const byteCount32 = Core::TryPixelByteCount32(static_cast<int>(width), static_cast<int>(height));
+            if (!bytes || !byteCount32)
             {
                 return {};
             }
             Core::Bitmap bitmap;
             bitmap.width = static_cast<std::int32_t>(width);
             bitmap.height = static_cast<std::int32_t>(height);
-            bitmap.pixels.resize(bitmap.Stride() * height);
-            if (FAILED(converted->CopyPixels(nullptr, static_cast<UINT>(bitmap.Stride()), static_cast<UINT>(bitmap.pixels.size()), bitmap.pixels.data())))
+            bitmap.pixels.resize(*bytes);
+            if (FAILED(converted->CopyPixels(nullptr, static_cast<UINT>(bitmap.Stride()), *byteCount32, bitmap.pixels.data())))
             {
                 return {};
             }

@@ -205,7 +205,13 @@ namespace winrt::Lucida::implementation
                 return;
             }
             std::int64_t const id = object.id;
-            m_textOverlay->Begin(*text, m_view->Context(), [this] { m_view->Invalidate(); }, [this, id] {
+            std::weak_ptr<::Lucida::Core::Document> const weakDoc = m_view->Document();
+            m_textOverlay->Begin(*text, m_view->Context(), [this] { m_view->Invalidate(); }, [this, id, weakDoc] {
+                auto const doc = weakDoc.lock();
+                if (!m_view || !doc || m_view->Document() != doc)
+                {
+                    return;
+                }
                 // An empty text object goes away when its editor closes; otherwise the edit is an undo step.
                 auto* active = m_view->Objects().Active();
                 auto* edited = active && active->id == id ? dynamic_cast<::Lucida::Core::ObjText*>(active) : nullptr;
@@ -224,6 +230,7 @@ namespace winrt::Lucida::implementation
         host.anyHelperOpen = [this] { return AnyHelperOpen(); };
         host.hideEditor = [this] { HideEditor(); };
         host.alert = [this](std::wstring const& title, std::wstring const& message) { Alert(title, message); };
+        host.endTextEdit = [this] { if (m_textOverlay) m_textOverlay->End(); };
         host.dragOut = [this](winrt::Microsoft::UI::Input::PointerPoint const& point) { ::Lucida::Editor::StartDragOut(Canvas(), point); };
         host.canvasPressed = [this] {
             // Transient helpers close on a click outside them.
@@ -532,6 +539,10 @@ namespace winrt::Lucida::implementation
         {
             SizeAndPlaceFor(document->Image());
         }
+        if (m_textOverlay)
+        {
+            m_textOverlay->End();
+        }
         CloseHelpers();
         m_template.reset();
         m_selectedTool.clear();
@@ -569,6 +580,10 @@ namespace winrt::Lucida::implementation
         if (m_colorValuesToken)
         {
             m_uiSettings.ColorValuesChanged(m_colorValuesToken);
+        }
+        if (m_textOverlay)
+        {
+            m_textOverlay->End();
         }
         Canvas().RemoveFromVisualTree();
         m_view.reset();
@@ -1832,9 +1847,12 @@ namespace winrt::Lucida::implementation
             namespace canvas = winrt::Microsoft::Graphics::Canvas;
             auto const& image = document->Image();
             auto device = canvas::CanvasDevice::GetSharedDevice();
-            auto source = canvas::CanvasBitmap::CreateFromBytes(device, winrt::array_view<std::uint8_t const>(image.pixels), image.width,
-                image.height, winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 96.0f,
-                canvas::CanvasAlphaMode::Premultiplied);
+            int const maxSize = device.MaximumBitmapSizeInPixels();
+            if (!Core::TryBitmapBytes(static_cast<int>(width), static_cast<int>(height)) || width > maxSize || height > maxSize)
+            {
+                Notify(Strings::Get(L"Resize_CantTitle"), Strings::Get(L"Resize_TooLarge"));
+                return;
+            }
             canvas::CanvasRenderTarget target{ device, static_cast<float>(width), static_cast<float>(height), 96.0f };
             auto interpolation = canvas::CanvasImageInterpolation::HighQualityCubic;
             switch (Core::ResizeQualityFor(static_cast<double>(width) / image.width))
@@ -1846,9 +1864,44 @@ namespace winrt::Lucida::implementation
             {
                 auto session = target.CreateDrawingSession();
                 session.Clear(winrt::Windows::UI::Color{ 0, 0, 0, 0 });
-                session.DrawImage(source, winrt::Windows::Foundation::Rect{ 0, 0, static_cast<float>(width), static_cast<float>(height) },
-                                  winrt::Windows::Foundation::Rect{ 0, 0, static_cast<float>(image.width), static_cast<float>(image.height) }, 1.0f,
-                                  interpolation);
+                if (image.width <= maxSize && image.height <= maxSize)
+                {
+                    auto source = canvas::CanvasBitmap::CreateFromBytes(device, winrt::array_view<std::uint8_t const>(image.pixels), image.width,
+                        image.height, winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 96.0f,
+                        canvas::CanvasAlphaMode::Premultiplied);
+                    session.DrawImage(source, winrt::Windows::Foundation::Rect{ 0, 0, static_cast<float>(width), static_cast<float>(height) },
+                                      winrt::Windows::Foundation::Rect{ 0, 0, static_cast<float>(image.width), static_cast<float>(image.height) }, 1.0f,
+                                      interpolation);
+                }
+                else
+                {
+                    double const scaleX = static_cast<double>(width) / image.width;
+                    double const scaleY = static_cast<double>(height) / image.height;
+                    for (std::int32_t ty = 0; ty < image.height; ty += maxSize)
+                    {
+                        std::int32_t const th = (std::min)(maxSize, image.height - ty);
+                        for (std::int32_t tx = 0; tx < image.width; tx += maxSize)
+                        {
+                            std::int32_t const tw = (std::min)(maxSize, image.width - tx);
+                            std::vector<std::uint8_t> tile(static_cast<std::size_t>(tw) * th * 4);
+                            for (std::int32_t row = 0; row < th; ++row)
+                            {
+                                std::memcpy(tile.data() + static_cast<std::size_t>(row) * tw * 4,
+                                    image.pixels.data() + static_cast<std::size_t>(ty + row) * image.Stride() + static_cast<std::size_t>(tx) * 4,
+                                    static_cast<std::size_t>(tw) * 4);
+                            }
+                            auto tileBmp = canvas::CanvasBitmap::CreateFromBytes(device, tile, tw, th,
+                                winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 96.0f,
+                                canvas::CanvasAlphaMode::Premultiplied);
+                            winrt::Windows::Foundation::Rect const dst{
+                                static_cast<float>(tx * scaleX), static_cast<float>(ty * scaleY),
+                                static_cast<float>((tx + tw) * scaleX - tx * scaleX),
+                                static_cast<float>((ty + th) * scaleY - ty * scaleY) };
+                            winrt::Windows::Foundation::Rect const src{ 0, 0, static_cast<float>(tw), static_cast<float>(th) };
+                            session.DrawImage(tileBmp, dst, src, 1.0f, interpolation);
+                        }
+                    }
+                }
                 session.Close();
             }
             Core::Bitmap resized;
@@ -2076,9 +2129,11 @@ namespace winrt::Lucida::implementation
         {
             return;
         }
-        ::Lucida::AppController::Current().CopyImage();
-        // copyImage hides the editor afterwards.
-        HideEditor();
+        if (::Lucida::AppController::Current().CopyImage())
+        {
+            // copyImage hides the editor afterwards.
+            HideEditor();
+        }
     }
 
     void EditorWindow::SaveImage()
