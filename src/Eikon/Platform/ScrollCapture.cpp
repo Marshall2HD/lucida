@@ -324,7 +324,7 @@ namespace Eikon::ScrollCapture
             params.direction = direction;
             params.dpr = state->dpr;
             params.speed = settings.ScrollingSpeed();
-            params.scrollingMax = settings.ScrollingMax();
+            params.scrollingMax = (std::min)(settings.ScrollingMax(), 16384);
             state->reverse = settings.ScrollingReverseAutoscroll();
 
             RECT const& r = state->rect;
@@ -549,6 +549,38 @@ namespace Eikon::ScrollCapture
             }
             BeginManual(std::move(done), *selection, std::move(overlay));
         });
+    }
+
+    void Cancel() noexcept
+    {
+        try
+        {
+            if (auto state = std::move(Auto()))
+            {
+                state->timers.Cancel();
+                state->monitor.reset();
+                if (state->savedCursor)
+                {
+                    ScrollDriver::MoveCursor(*state->savedCursor);
+                }
+                if (state->overlay)
+                {
+                    state->overlay->Close();
+                }
+                timeEndPeriod(1);
+            }
+            if (auto state = StopManual())
+            {
+                if (state->overlay)
+                {
+                    state->overlay->Close();
+                }
+            }
+        }
+        catch (...)
+        {
+            // Shutdown must not let a capture callback escape.
+        }
     }
 
     bool IsRunning() noexcept

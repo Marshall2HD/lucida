@@ -44,6 +44,7 @@ namespace Eikon::Core
 
         Bitmap const& Image() const noexcept { return *m_image; }
         std::shared_ptr<Bitmap const> const& ImagePtr() const noexcept { return m_image; }
+        std::uint64_t ImageGeneration() const noexcept { return m_imageGeneration; }
         // Rasterize: the flattened image becomes the base; the crop moves by
         // `cropOffset` (when the new image starts left of/above the old one) and the growth is cleared.
         void ReplaceImage(Bitmap image, Point cropOffset = {});
@@ -103,6 +104,7 @@ namespace Eikon::Core
 
     private:
         std::shared_ptr<Bitmap const> m_image;
+        std::uint64_t m_imageGeneration = 0;
         Rect m_crop;
         Insets m_growth;
         std::vector<ObjectPtr> m_objects;

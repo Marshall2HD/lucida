@@ -55,7 +55,9 @@ namespace Eikon::ScrollDriver
 
         Trigger m_trigger;
         std::atomic<bool> m_triggered{ false };
+        std::atomic<bool> m_stop{ false };
+        std::atomic<bool> m_started{ false };
         std::thread m_thread;
-        DWORD m_threadId = 0;
+        std::atomic<DWORD> m_threadId{ 0 };
     };
 }

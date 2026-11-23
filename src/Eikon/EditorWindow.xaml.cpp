@@ -570,6 +570,7 @@ namespace winrt::Eikon::implementation
         {
             m_uiSettings.ColorValuesChanged(m_colorValuesToken);
         }
+        Canvas().RemoveFromVisualTree();
         m_view.reset();
         Close();
     }
@@ -2116,7 +2117,13 @@ namespace winrt::Eikon::implementation
     {
         if (m_view && m_view->Document())
         {
-            ::Eikon::AppController::Current().PinImage(::Eikon::Editor::Compose(*m_view->Document()));
+            auto const bitmap = ::Eikon::Editor::Compose(*m_view->Document());
+            if (!bitmap)
+            {
+                Alert(Strings::Get(L"Output_ComposeFailedTitle"), Strings::Get(L"Output_ComposeFailedMessage"));
+                return;
+            }
+            ::Eikon::AppController::Current().PinImage(bitmap);
         }
     }
 
@@ -2145,6 +2152,11 @@ namespace winrt::Eikon::implementation
                 return;
             }
             image = ::Eikon::Editor::Compose(*document);
+        }
+        if (!image)
+        {
+            Alert(Strings::Get(L"Output_ComposeFailedTitle"), Strings::Get(L"Output_ComposeFailedMessage"));
+            return;
         }
         ::Eikon::AppController::Current().RecognizeText(image, L"editor");
     }

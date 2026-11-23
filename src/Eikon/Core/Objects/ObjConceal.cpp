@@ -35,12 +35,17 @@ namespace Eikon::Core
         auto r = GetRect(json, L"rect");
         auto s = GetNumber(json, L"size");
         auto m = GetString(json, L"fillMode");
-        if (!r || !s || !m)
+        if (!r || !s || !m || !IsMode(*m))
+        {
+            return false;
+        }
+        auto const loadedSize = Int32FromJsonNumber(*s);
+        if (!loadedSize)
         {
             return false;
         }
         rect = *r;
-        size = static_cast<std::int32_t>(frintaInt(*s));
+        size = *loadedSize;
         fillMode = *m;
         m_bitmap.reset();
         state = std::wstring{ ObjectState::Unselected };
@@ -59,6 +64,10 @@ namespace Eikon::Core
         Settings& settings = Settings::Current();
         if (name == L"concealType")
         {
+            if (!IsMode(value))
+            {
+                return;
+            }
             fillMode = std::wstring{ value };
             SavePreference(settings, L"fillMode", value);
             m_bitmap.reset();
@@ -146,18 +155,18 @@ namespace Eikon::Core
             return nullptr;
         }
         Rect const area = Conceal::ClampArea(rect, source.width, source.height);
-        if (IsTextMode() && area != m_boxesArea)
-        {
-            return nullptr;
-        }
-        if (!m_bitmap || m_bitmapArea != area || m_bitmapMode != fillMode || m_bitmapSize != size)
+        bool const textSettled = IsTextMode() && area == m_boxesArea;
+        std::wstring_view const mode = !IsTextMode() || textSettled ? std::wstring_view{ fillMode }
+                                                                 : fillMode == L"pixelate-text" ? L"pixelate" : L"erase";
+        if (!m_bitmap || m_bitmapArea != area || m_bitmapMode != fillMode || m_bitmapSize != size || m_bitmapTextSettled != textSettled)
         {
             static std::vector<Rect> const none;
             m_bitmap = std::make_shared<Bitmap const>(
-                Conceal::Generate(source, area, fillMode, size, dpr, IsTextMode() ? m_boxes : none, [] { return Random::Unit(); }));
+                Conceal::Generate(source, area, mode, size, dpr, textSettled ? m_boxes : none, [] { return Random::Unit(); }));
             m_bitmapArea = area;
             m_bitmapMode = fillMode;
             m_bitmapSize = size;
+            m_bitmapTextSettled = textSettled;
         }
         return m_bitmap;
     }

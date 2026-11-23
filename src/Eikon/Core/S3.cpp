@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cwctype>
 
 #pragma comment(lib, "bcrypt.lib")
 
@@ -89,6 +90,100 @@ namespace Eikon::Core::S3
         bool EndsWith(std::wstring_view text, std::wstring_view suffix) noexcept
         {
             return text.size() >= suffix.size() && text.substr(text.size() - suffix.size()) == suffix;
+        }
+
+        bool IsValidHost(std::wstring_view value) noexcept
+        {
+            if (value.empty() || value.size() > 253 || value.find_first_of(L"@/?#") != std::wstring_view::npos)
+            {
+                return false;
+            }
+            std::size_t const colon = value.find(L':');
+            if (colon != std::wstring_view::npos && value.find(L':', colon + 1) != std::wstring_view::npos)
+            {
+                return false;
+            }
+            std::wstring_view const host = value.substr(0, colon);
+            if (host.empty())
+            {
+                return false;
+            }
+            if (colon != std::wstring_view::npos)
+            {
+                std::wstring_view const port = value.substr(colon + 1);
+                if (port.empty())
+                {
+                    return false;
+                }
+                unsigned portValue = 0;
+                for (wchar_t c : port)
+                {
+                    if (c < L'0' || c > L'9')
+                    {
+                        return false;
+                    }
+                    portValue = portValue * 10 + static_cast<unsigned>(c - L'0');
+                    if (portValue > 65535)
+                    {
+                        return false;
+                    }
+                }
+                if (portValue == 0)
+                {
+                    return false;
+                }
+            }
+            std::size_t labelStart = 0;
+            while (labelStart < host.size())
+            {
+                std::size_t const labelEnd = host.find(L'.', labelStart);
+                std::size_t const end = labelEnd == std::wstring_view::npos ? host.size() : labelEnd;
+                if (end == labelStart || end - labelStart > 63 || host[labelStart] == L'-' || host[end - 1] == L'-')
+                {
+                    return false;
+                }
+                for (std::size_t i = labelStart; i < end; ++i)
+                {
+                    wchar_t const c = host[i];
+                    if (!((c >= L'A' && c <= L'Z') || (c >= L'a' && c <= L'z') || (c >= L'0' && c <= L'9') || c == L'-'))
+                    {
+                        return false;
+                    }
+                }
+                if (labelEnd == std::wstring_view::npos)
+                {
+                    break;
+                }
+                labelStart = labelEnd + 1;
+            }
+            return true;
+        }
+
+        bool HasForbiddenEndpointCharacter(std::wstring_view value) noexcept
+        {
+            for (wchar_t c : value)
+            {
+                if (std::iswspace(static_cast<wint_t>(c)) || c <= 0x1F || (c >= 0x7F && c <= 0x9F))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        bool IsCloudflareHost(std::wstring_view value) noexcept
+        {
+            std::size_t const colon = value.find(L':');
+            std::wstring_view const host = value.substr(0, colon);
+            std::wstring const lower = [&] {
+                std::wstring result{ host };
+                for (wchar_t& c : result)
+                {
+                    if (c >= L'A' && c <= L'Z') c = static_cast<wchar_t>(c - L'A' + L'a');
+                }
+                return result;
+            }();
+            return EndsWith(lower, L".cloudflarestorage.com");
         }
 
         // Howard Hinnant's days_from_civil.
@@ -387,6 +482,7 @@ namespace Eikon::Core::S3
         {
             return Localization::Text(L"Upload_RegionRequired", L"Region is required when no endpoint is provided.");
         }
+        constexpr std::wstring_view kInvalidEndpoint = L"Invalid S3 endpoint.";
         Target target;
         target.bucket = ToUtf8(settings.bucket);
         if (endpoint.empty())
@@ -394,24 +490,39 @@ namespace Eikon::Core::S3
             target.region = ToUtf8(region);
             target.host = target.bucket + ".s3." + target.region + ".amazonaws.com";
             target.pathStyle = false;
+            if (!IsValidHost(FromUtf8(target.host)))
+            {
+                return std::wstring{ kInvalidEndpoint };
+            }
             return target;
+        }
+        if (HasForbiddenEndpointCharacter(endpoint) || endpoint.find(L'@') != std::wstring::npos || endpoint.starts_with(L"http://"))
+        {
+            return std::wstring{ kInvalidEndpoint };
         }
         if (endpoint.starts_with(L"https://"))
         {
             endpoint.erase(0, 8);
         }
-        // Cloudflare R2: users often paste the bucket URL, ".../<bucket>".
-        if (endpoint.find(L"cloudflarestorage.com") != std::wstring::npos && EndsWith(endpoint, L"/" + settings.bucket))
+        else if (endpoint.find(L"://") != std::wstring::npos)
         {
-            endpoint.erase(endpoint.size() - settings.bucket.size() - 1);
+            return std::wstring{ kInvalidEndpoint };
         }
-        // A trailing "/" would end up in the Host header.
-        while (!endpoint.empty() && endpoint.back() == L'/')
+
+        std::size_t const slash = endpoint.find(L'/');
+        std::wstring const host = endpoint.substr(0, slash);
+        std::wstring_view const suffix = slash == std::wstring::npos ? std::wstring_view{} : std::wstring_view{ endpoint }.substr(slash);
+        // Cloudflare R2 accepts its pasted bucket URL, but no other endpoint path.
+        if (!suffix.empty() && !(IsCloudflareHost(host) && !settings.bucket.empty() && suffix == L"/" + settings.bucket))
         {
-            endpoint.pop_back();
+            return std::wstring{ kInvalidEndpoint };
+        }
+        if (!IsValidHost(host))
+        {
+            return std::wstring{ kInvalidEndpoint };
         }
         target.region = region.empty() ? std::string{ "auto" } : ToUtf8(region);
-        target.host = ToUtf8(endpoint);
+        target.host = ToUtf8(host);
         target.pathStyle = true;
         return target;
     }
@@ -538,7 +649,7 @@ namespace Eikon::Core::S3
         {
             url.push_back(L'/');
         }
-        return url + FromUtf8(key);
+        return url + FromUtf8(EncodePath(key));
     }
 
     bool ShouldRetryForClockSkew(int status, int attempt, std::string_view body)

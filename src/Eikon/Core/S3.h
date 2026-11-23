@@ -93,8 +93,8 @@ namespace Eikon::Core::S3
         bool pathStyle = false;
     };
 
-    // Applies: endpoint "https://" prefix removed (and trailing "/"), region "auto" for an
-    // endpoint without one, Cloudflare R2's "/<bucket>" suffix removed. Returns the error text
+    // Accepts only https://host[:port] or host[:port], with Cloudflare R2's exact "/<bucket>" suffix
+    // also accepted and removed. Region is "auto" for an endpoint without one. Returns the error text
     // "Region is required when no endpoint is provided." when neither is set.
     std::variant<Target, std::wstring> ResolveTarget(Settings const& settings);
     // "/<key>" (virtual-hosted) or "/<bucket>/<key>" (path style), each segment percent-encoded.
@@ -133,7 +133,7 @@ namespace Eikon::Core::S3
                              std::int64_t expires, std::int64_t unixSeconds);
 
     // "public" sharing. nullopt when the base URL lacks "." or "//"; a "/" is added if missing
-    // and the key appended as is.
+    // and the UTF-8 key is percent-encoded per path segment.
     std::optional<std::wstring> PublicUrl(std::wstring_view baseUrl, std::string_view key);
 
     // Whether a response should trigger the clock-skew HEAD and retry.

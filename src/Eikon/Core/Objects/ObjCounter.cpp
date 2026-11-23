@@ -61,12 +61,18 @@ namespace Eikon::Core
     bool ObjCounter::Load(JsonValue const& json)
     {
         auto s = GetNumber(json, L"style"), c = GetNumber(json, L"count");
-        if (!s || !c || !LoadBase(json))
+        if (!s || !c)
         {
             return false;
         }
-        style = static_cast<std::int32_t>(*s);
-        count = static_cast<std::int32_t>(*c);
+        auto const loadedStyle = Int32FromJsonNumber(*s);
+        auto const loadedCount = Int32FromJsonNumber(*c);
+        if (!loadedStyle || !loadedCount || !LoadBase(json))
+        {
+            return false;
+        }
+        style = *loadedStyle;
+        count = *loadedCount;
         prevDigitHit = false;
         state = std::wstring{ ObjectState::Unselected };
         return true;

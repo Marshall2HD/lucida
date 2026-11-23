@@ -17,6 +17,7 @@
 
 #include <cmath>
 #include <map>
+#include <set>
 #include <unordered_map>
 
 // Editor::Render::Draw for annotation objects: one renderer per Obj* class.
@@ -87,15 +88,21 @@ namespace Eikon::Editor::Render
             return canvas::CanvasDevice::GetSharedDevice();
         }
 
+        struct BitmapEntry
+        {
+            std::weak_ptr<Core::Bitmap const> source;
+            canvas::CanvasBitmap bitmap{ nullptr };
+        };
+        std::map<Core::Bitmap const*, BitmapEntry>& BitmapCache()
+        {
+            static std::map<Core::Bitmap const*, BitmapEntry> cache;
+            return cache;
+        }
+
         // CanvasBitmaps made from Core bitmaps (conceal results, pasted images), per device.
         canvas::CanvasBitmap BitmapFor(canvas::ICanvasResourceCreator const& device, std::shared_ptr<Core::Bitmap const> const& bitmap)
         {
-            struct Entry
-            {
-                std::weak_ptr<Core::Bitmap const> source;
-                canvas::CanvasBitmap bitmap{ nullptr };
-            };
-            static std::map<Core::Bitmap const*, Entry> cache;
+            auto& cache = BitmapCache();
             if (!bitmap || bitmap->IsEmpty())
             {
                 return nullptr;
@@ -116,21 +123,26 @@ namespace Eikon::Editor::Render
             return entry.bitmap;
         }
 
-        // OCR word boxes per (image, area): the conceal text modes look their area up here; a miss starts
-        // recognition and redraws when it lands.
+        // OCR word boxes per (document image generation, area). Bitmap addresses can be
+        // recycled after a document closes, so they must never be part of this key.
         struct OcrKey
         {
-            Core::Bitmap const* image;
-            double x, y, w, h;
+            std::uint64_t imageGeneration;
+            std::int32_t x, y, w, h;
             bool operator<(OcrKey const& o) const
             {
-                return std::tie(image, x, y, w, h) < std::tie(o.image, o.x, o.y, o.w, o.h);
+                return std::tie(imageGeneration, x, y, w, h) < std::tie(o.imageGeneration, o.x, o.y, o.w, o.h);
             }
         };
         std::map<OcrKey, std::optional<std::vector<Core::Rect>>>& OcrCache()
         {
             static std::map<OcrKey, std::optional<std::vector<Core::Rect>>> cache;
             return cache;
+        }
+        std::set<std::uint64_t>& ActiveOcrGenerations()
+        {
+            static std::set<std::uint64_t> generations;
+            return generations;
         }
         std::function<void()>& Redraw()
         {
@@ -142,32 +154,39 @@ namespace Eikon::Editor::Render
         {
             auto const& env = Core::Environment();
             Core::Bitmap const* image = env.bitmap;
+            std::uint64_t const generation = context.imageGeneration ? context.imageGeneration : env.imageGeneration;
+            if (generation) ActiveOcrGenerations().insert(generation);
             if (image && !image->IsEmpty() && !conceal.IsCreating())
             {
                 if (auto const area = conceal.PendingOcr())
                 {
-                    OcrKey const key{ image, area->x, area->y, area->width, area->height };
+                    // OCR is a mode-specific enhancement. ObjConceal continues to draw
+                    // its conservative full-area concealment while recognition is absent.
+                    int const x = std::clamp(static_cast<int>(std::floor(area->x)), 0, image->width);
+                    int const y = std::clamp(static_cast<int>(std::floor(area->y)), 0, image->height);
+                    int const right = std::clamp(static_cast<int>(std::ceil(area->Right())), x, image->width);
+                    int const bottom = std::clamp(static_cast<int>(std::ceil(area->Bottom())), y, image->height);
+                    int const w = right - x;
+                    int const h = bottom - y;
+                    OcrKey const key{ generation, x, y, w, h };
                     auto& cache = OcrCache();
                     auto it = cache.find(key);
-                    if (it == cache.end())
+                    if (it == cache.end() && w > 0 && h > 0 && Core::TryBitmapBytes(w, h))
                     {
                         cache[key] = std::nullopt;
-                        // Crop the area and recognise it off the UI thread.
-                        auto const w = static_cast<std::int32_t>(area->width);
-                        auto const h = static_cast<std::int32_t>(area->height);
-                        std::vector<std::uint8_t> crop(static_cast<std::size_t>(w) * h * 4);
-                        for (std::int32_t y = 0; y < h; ++y)
-                        {
-                            std::memcpy(crop.data() + static_cast<std::size_t>(y) * w * 4,
-                                        image->pixels.data() + (static_cast<std::size_t>(area->y) + y) * image->Stride() + static_cast<std::size_t>(area->x) * 4,
+                        std::vector<std::uint8_t> crop(*Core::TryBitmapBytes(w, h));
+                        for (int row = 0; row < h; ++row)
+                            std::memcpy(crop.data() + static_cast<std::size_t>(row) * w * 4,
+                                        image->pixels.data() + image->Stride() * static_cast<std::size_t>(y + row) + static_cast<std::size_t>(x) * 4,
                                         static_cast<std::size_t>(w) * 4);
-                        }
                         Eikon::RecognizeWordBoxes(std::move(crop), w, h, [key](std::vector<Core::Rect> boxes) {
+                            // The completion runs later; never cache or redraw a closed/replaced image.
+                            if (!ActiveOcrGenerations().contains(key.imageGeneration)) return;
                             OcrCache()[key] = std::move(boxes);
                             if (Redraw()) Redraw()();
                         });
                     }
-                    else if (it->second)
+                    else if (it != cache.end() && it->second)
                     {
                         const_cast<Core::ObjConceal&>(conceal).SetTextBoxes(*area, *it->second);
                     }
@@ -193,7 +212,8 @@ namespace Eikon::Editor::Render
                 // Nearest-neighbour pixels of the source, clipped to the lens shape.
                 auto const clip = ToGeometry(session, magnifier.OutlinePath(lens, context.dpr, context.zoom));
                 auto layer = session.CreateLayer(1.0f, clip);
-                session.DrawImage(context.image, R(lens), R(source), 1.0f, canvas::CanvasImageInterpolation::NearestNeighbor);
+                Core::Rect tileSource{ source.x - context.sourceOrigin.x, source.y - context.sourceOrigin.y, source.width, source.height };
+                session.DrawImage(context.image, R(lens), R(tileSource), 1.0f, canvas::CanvasImageInterpolation::NearestNeighbor);
                 layer.Close();
             }
             DrawShapes(session, magnifier.Shapes(context.dpr, context.zoom));
@@ -233,7 +253,10 @@ namespace Eikon::Editor::Render
             }
             effects::BlendEffect blend;
             blend.Mode(look.blend == Core::HighlighterLook::Blend::Multiply ? effects::BlendEffectMode::Multiply : effects::BlendEffectMode::Screen);
-            blend.Background(context.image);
+            effects::Transform2DEffect background;
+            background.Source(context.image);
+            background.TransformMatrix(winrt::Windows::Foundation::Numerics::make_float3x2_translation(F(-context.sourceOrigin.x), F(-context.sourceOrigin.y)));
+            blend.Background(background);
             blend.Foreground(ink);
             auto layer = session.CreateLayer(F(look.opacity), shape);
             session.DrawImage(blend);
@@ -357,6 +380,7 @@ namespace Eikon::Editor::Render
         static std::shared_ptr<Core::Bitmap const> keepAlive;
         keepAlive = document->ImagePtr();
         env.bitmap = keepAlive.get();
+        env.imageGeneration = document->ImageGeneration();
         env.nextCounter = [weak = std::weak_ptr<Core::Document>(document)] {
             auto const d = weak.lock();
             return d ? d->NextCounter() : 1;
@@ -366,6 +390,19 @@ namespace Eikon::Editor::Render
             env.measureText = MeasureText;
         }
         Redraw() = std::move(redraw);
+    }
+
+    void ClearDeviceCaches()
+    {
+        BitmapCache().clear();
+    }
+
+    void ClearOcrCache(std::uint64_t imageGeneration)
+    {
+        ActiveOcrGenerations().erase(imageGeneration);
+        auto& cache = OcrCache();
+        for (auto it = cache.begin(); it != cache.end();)
+            it = it->first.imageGeneration == imageGeneration ? cache.erase(it) : std::next(it);
     }
 
     void DrawSpotlights(canvas::CanvasDrawingSession const& session, std::vector<Core::ObjectPtr> const& objects, Context const& context,

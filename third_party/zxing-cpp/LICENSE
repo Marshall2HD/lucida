@@ -1,3 +1,9 @@
+ZXing-C++ 3.1.1 is licensed under Apache License 2.0.
+
+This vendored subset also includes libzueci (BSD-3-Clause, Copyright (C) 2022 gitlost)
+and Bjoern Hoehrmann's UTF-8 decoder permission notice. Their complete notices are in
+../../THIRD_PARTY_NOTICES.md.
+
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/

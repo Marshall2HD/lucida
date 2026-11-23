@@ -11,7 +11,7 @@
   <Identity
     Name="MarshallHD.lucida"
     Publisher="CN=217334B3-10EF-48F6-BB35-BA93F82D16F3"
-    Version="0.1.0.0" />
+    Version="1.0.1.0" />
 
   <Properties>
     <DisplayName>Lucida</DisplayName>

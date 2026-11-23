@@ -114,6 +114,11 @@
                         <BitmapIcon UriSource="ms-appx:///Assets/Prefs/30-pref-advanced.png" ShowAsMonochrome="True" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem x:Uid="Prefs_NavAbout" Tag="about">
+                    <NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="ContactInfo" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
             </NavigationView.MenuItems>
 
             <Frame x:Name="ContentFrame" IsTabStop="False" />

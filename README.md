@@ -62,8 +62,10 @@ Lucida is released under the [MIT licence](LICENSE).
 
 | Component | Use | Licence |
 |---|---|---|
-| [Lucide](https://lucide.dev) 1.70.0 | tool and UI icons | ISC (Feather-derived icons MIT), [`third_party/lucide/LICENSE`](third_party/lucide/LICENSE) |
-| [ZXing-C++](https://github.com/zxing-cpp/zxing-cpp) 3.1.1 | QR code reading | Apache-2.0 (libzueci BSD-3-Clause), [`third_party/zxing-cpp/LICENSE`](third_party/zxing-cpp/LICENSE) |
-| [U²-Net-p](https://github.com/xuebinqin/U-2-Net), ONNX export by [rembg](https://github.com/danielgatis/rembg) | Cut Out's subject model | Apache-2.0 (export MIT), [`third_party/u2net/LICENSE`](third_party/u2net/LICENSE) |
+| [Lucide](https://lucide.dev) 1.70.0 | tool and UI icons | ISC; Feather-derived icons MIT, [`third_party/lucide/LICENSE`](third_party/lucide/LICENSE) |
+| [ZXing-C++](https://github.com/zxing-cpp/zxing-cpp) 3.1.1 | QR code reading | Apache-2.0; bundled libzueci is BSD-3-Clause and its UTF-8 decoder carries Bjoern Hoehrmann's permission notice, [`third_party/zxing-cpp/LICENSE`](third_party/zxing-cpp/LICENSE) |
+| [U²-Net-p](https://github.com/xuebinqin/U-2-Net) / [rembg](https://github.com/danielgatis/rembg) | Cut Out's subject model and `u2netp.onnx` export | U²-Net Apache-2.0; rembg export MIT, [`third_party/u2net/LICENSE`](third_party/u2net/LICENSE) |
 | [Win2D](https://github.com/microsoft/Win2D), [C++/WinRT](https://github.com/microsoft/cppwinrt), [WIL](https://github.com/microsoft/wil) | canvas rendering, WinRT projection, helpers | MIT, via NuGet |
 | [Windows App SDK](https://github.com/microsoft/WindowsAppSDK) | WinUI 3, app runtime, ONNX Runtime | Microsoft licence terms of the NuGet package |
+
+The complete, package-shipped notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

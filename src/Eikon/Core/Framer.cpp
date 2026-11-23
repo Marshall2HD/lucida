@@ -13,6 +13,10 @@ namespace Eikon::Core
         // d = frinta(2·log2 z), even when negative; returns sqrt(2^d).
         double HalfStepPower(double z) noexcept
         {
+            if (!std::isfinite(z) || z <= 0)
+            {
+                return Framer::kInitialMinZoom;
+            }
             double d = frinta(std::log2(z) * 2);
             if (d < 0)
             {
@@ -31,7 +35,8 @@ namespace Eikon::Core
     Point Framer::ToImage(Point view) const noexcept
     {
         Point const p = RoundedPan();
-        return { (view.x - p.x) / zoom, (view.y - p.y) / zoom };
+        double const z = std::isfinite(zoom) && zoom > 0 ? zoom : 1.0;
+        return { (view.x - p.x) / z, (view.y - p.y) / z };
     }
 
     Rect Framer::ToViewRect(Rect image) const noexcept
@@ -42,6 +47,10 @@ namespace Eikon::Core
 
     double Framer::SnapCoarse(double z) noexcept
     {
+        if (!std::isfinite(z) || z <= 0)
+        {
+            return kInitialMinZoom;
+        }
         double s = HalfStepPower(z);
         if (s > 2.0)
         {
@@ -56,6 +65,10 @@ namespace Eikon::Core
 
     double Framer::StepCoarse(double z, bool zoomIn) noexcept
     {
+        if (!std::isfinite(z) || z <= 0)
+        {
+            z = kInitialMinZoom;
+        }
         if (zoomIn)
         {
             return z < 4.0 ? z * 2 : frinta(z * kSqrt2Approx * 0.5) * 2;
@@ -65,6 +78,10 @@ namespace Eikon::Core
 
     double Framer::SnapFine(double z) noexcept
     {
+        if (!std::isfinite(z) || z <= 0)
+        {
+            return kInitialMinZoom;
+        }
         if (z > 6.0)
         {
             return frinta(z);
@@ -91,7 +108,9 @@ namespace Eikon::Core
     void Framer::ZoomAt(double newZoom, Point anchor) noexcept
     {
         Point const image = ToImage(anchor);
-        zoom = (std::min)((std::max)(newZoom, minZoom), kMaxZoom);
+        double const lower = std::isfinite(minZoom) && minZoom > 0 ? minZoom : kInitialMinZoom;
+        double const requested = std::isfinite(newZoom) && newZoom > 0 ? newZoom : lower;
+        zoom = (std::min)((std::max)(requested, lower), kMaxZoom);
         pan = { anchor.x - image.x * zoom, anchor.y - image.y * zoom };
     }
 

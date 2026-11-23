@@ -6,7 +6,7 @@
 #include "Core/Json.h"
 
 #include <cmath>
-#include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -20,11 +20,41 @@ namespace Eikon::Core::Support
     inline void SetBool(JsonValue& json, std::wstring_view key, bool value) { json.Set(key, JsonValue::Bool(value)); }
     inline void SetString(JsonValue& json, std::wstring_view key, std::wstring value) { json.Set(key, JsonValue::String(std::move(value))); }
 
-    // Load members: nullopt when missing or of another kind (the Load then fails, as Decodable does).
+    inline std::optional<std::int32_t> Int32FromJsonNumber(double value) noexcept
+    {
+        if (!std::isfinite(value) || std::trunc(value) != value || value < -2147483648.0 || value >= 2147483648.0)
+        {
+            return std::nullopt;
+        }
+        return static_cast<std::int32_t>(value);
+    }
+
+    inline std::optional<std::int64_t> Int64FromJsonNumber(double value) noexcept
+    {
+        constexpr double kMin = -9223372036854775808.0;
+        constexpr double kPastMax = 9223372036854775808.0;
+        if (!std::isfinite(value) || std::trunc(value) != value || value < kMin || value >= kPastMax)
+        {
+            return std::nullopt;
+        }
+        return static_cast<std::int64_t>(value);
+    }
+
+    inline std::optional<std::uint64_t> UInt64FromJsonNumber(double value) noexcept
+    {
+        constexpr double kPastMax = 18446744073709551616.0;
+        if (!std::isfinite(value) || std::trunc(value) != value || value < 0 || value >= kPastMax)
+        {
+            return std::nullopt;
+        }
+        return static_cast<std::uint64_t>(value);
+    }
+
+    // Load members: nullopt when missing, non-finite, or of another kind (the Load then fails, as Decodable does).
     inline std::optional<double> GetNumber(JsonValue const& json, std::wstring_view key)
     {
         auto const* v = json.Find(key);
-        if (!v || !v->IsNumber()) return std::nullopt;
+        if (!v || !v->IsNumber() || !std::isfinite(v->AsNumber())) return std::nullopt;
         return v->AsNumber();
     }
     inline std::optional<bool> GetBool(JsonValue const& json, std::wstring_view key)

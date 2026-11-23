@@ -14,6 +14,9 @@
 
 namespace Eikon::Editor::BackdropRender
 {
+    // Drop generated per-device bitmaps after a Canvas device recreation.
+    void ClearDeviceCaches();
+
     // The document's output layout: crop, canvas expansion around the objects (`expandableCanvas`),
     // padding, ratio and radii.
     Core::Backdrop::Layout DocumentLayout(Core::Document const& document);

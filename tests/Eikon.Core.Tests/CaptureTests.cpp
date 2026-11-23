@@ -128,6 +128,58 @@ TEST(Capture_ShadowPaddingsTopUsesTheCentreOfTheOpaqueSpan)
     CHECK_EQ(p.bottom, 39);
 }
 
+TEST(Capture_ShadowPaddingsDoNotCrossNarrowRows)
+{
+    Bitmap image = Transparent(20, 4);
+    // The middle row is transparent but the next row is opaque. A raw byte scan used to continue into it.
+    FillRect(image, 0, 3, 19, 3, 0, 0, 0, 0xFF);
+    CHECK_EQ(ComputeShadowPaddings(image).left, 0);
+}
+
+TEST(Capture_AddWindowShadowBuildsPremultipliedRoundedCanvas)
+{
+    Bitmap window = Bitmap::Create(8, 8, 1.5);
+    window.screenRect = { 100, 200, 8, 8 };
+    FillRect(window, 0, 0, 7, 7, 30, 20, 200, 0xFF);
+    WindowShadowStyle style;
+    style.left = 4;
+    style.top = 4;
+    style.right = 6;
+    style.bottom = 5;
+    style.cornerRadius = 3;
+    style.blurRadius = 2;
+    style.offsetY = 1;
+    style.opacity = 200;
+    Bitmap const out = AddWindowShadow(window, style);
+    CHECK_EQ(out.width, 18);
+    CHECK_EQ(out.height, 17);
+    CHECK_EQ(out.dpr, 1.5);
+    CHECK((out.screenRect == Rect{ 96, 196, 18, 17 }));
+    CHECK_EQ(Pixel(out, 8, 8), Bgra(30, 20, 200, 0xFF));
+    std::uint8_t const* corner = out.pixels.data() + static_cast<std::size_t>(4) * out.Stride() + 4 * 4;
+    CHECK(corner[3] > 0 && corner[3] < 255);
+    CHECK(corner[0] <= corner[3] && corner[1] <= corner[3] && corner[2] <= corner[3]);
+    CHECK_EQ(Pixel(out, 0, 0), 0u);
+    std::uint8_t const* shadow = out.pixels.data() + static_cast<std::size_t>(8) * out.Stride() + 3 * 4;
+    CHECK(shadow[3] > 0);
+    CHECK_EQ(shadow[0], std::uint8_t{ 0 });
+    CHECK_EQ(shadow[1], std::uint8_t{ 0 });
+    CHECK_EQ(shadow[2], std::uint8_t{ 0 });
+
+    Bitmap const trimmed = TrimShadow(out);
+    CHECK(trimmed.width < out.width && trimmed.height < out.height);
+    Bitmap wallpaper = Bitmap::Create(out.width, out.height);
+    FillRect(wallpaper, 0, 0, wallpaper.width - 1, wallpaper.height - 1, 9, 8, 7, 0xFF);
+    CHECK_EQ(Pixel(AddWallpaper(out, wallpaper), 0, 0), Bgra(9, 8, 7, 0xFF));
+    CHECK_EQ(Pixel(AddColor(out, Color{ 1, 2, 3, 255 }), 0, 0), Bgra(3, 2, 1, 0xFF));
+
+    WindowShadowStyle const maximized{};
+    Bitmap const unchanged = AddWindowShadow(window, maximized);
+    CHECK_EQ(unchanged.width, window.width);
+    CHECK_EQ(unchanged.height, window.height);
+    CHECK_EQ(Pixel(unchanged, 4, 4), Pixel(window, 4, 4));
+}
+
 TEST(Capture_TrimShadowCropsThePaddings)
 {
     Bitmap const trimmed = TrimShadow(ShadowedWindow());

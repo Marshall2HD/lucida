@@ -59,7 +59,7 @@ namespace
             { L"fileNameTemplate", L"SCR-%Y%m%d-%t", [](Settings& s) { return Raw(s.FileNameTemplate()); } },
             { L"growingToolbar", L"0", [](Settings& s) { return Raw(s.GrowingToolbar()); } },
             { L"headlessTextRendering", L"1", [](Settings& s) { return Raw(s.HeadlessTextRendering()); } },
-            { L"libAction", L"eikon", [](Settings& s) { return Raw(s.LibAction()); } },
+            { L"libAction", L"lucida", [](Settings& s) { return Raw(s.LibAction()); } },
             { L"libAllowOCR", L"1", [](Settings& s) { return Raw(s.LibAllowOCR()); } },
             { L"libEnabled", L"0", [](Settings& s) { return Raw(s.LibEnabled()); } },
             { L"libIndexNonshots", L"0", [](Settings& s) { return Raw(s.LibIndexNonshots()); } },
@@ -78,7 +78,7 @@ namespace
             { L"saveOnEsc", L"0", [](Settings& s) { return Raw(s.SaveOnEsc()); } },
             { L"scrollingCustomGrabber", L"0", [](Settings& s) { return Raw(s.ScrollingCustomGrabber()); } },
             { L"scrollingManualEnabled", L"0", [](Settings& s) { return Raw(s.ScrollingManualEnabled()); } },
-            { L"scrollingMax", L"20000", [](Settings& s) { return Raw(s.ScrollingMax()); } },
+            { L"scrollingMax", L"16384", [](Settings& s) { return Raw(s.ScrollingMax()); } },
             { L"scrollingReverseAutoscroll", L"0", [](Settings& s) { return Raw(s.ScrollingReverseAutoscroll()); } },
             { L"scrollingSpeed", L"2", [](Settings& s) { return Raw(s.ScrollingSpeed()); } },
             { L"showDockIcon", L"1", [](Settings& s) { return Raw(s.ShowDockIcon()); } },
@@ -133,6 +133,14 @@ TEST(Settings_EveryKeyReadsTheSpecDefaultAndWritesItBack)
             CHECK_EQ(it->second, std::wstring{ entry.raw });
         }
     }
+}
+
+TEST(Settings_StageOneDefaults)
+{
+    ResetSettings();
+    auto& settings = Settings::Current();
+    CHECK_EQ(settings.LibAction(), std::wstring{ L"lucida" });
+    CHECK_EQ(settings.ScrollingMax(), std::int64_t{ 16384 });
 }
 
 TEST(Settings_WriteBackHappensOnceAndDoesNotRaiseChanged)

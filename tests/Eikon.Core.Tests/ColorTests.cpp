@@ -5,6 +5,7 @@
 #include "Core/Color.h"
 
 #include <cmath>
+#include <limits>
 #include <numbers>
 
 using namespace Eikon::Core;
@@ -343,10 +344,29 @@ TEST(TopColors_PixelFilterOnTheFifthScaleImage)
     CHECK(strings[0] == L"#000000");
 }
 
+TEST(Bitmap_BudgetsRejectOversizedAndInvalidDimensions)
+{
+    CHECK_EQ(TryBitmapBytes(1, 1), std::optional<std::size_t>{ 4 });
+    CHECK_EQ(TryPixelByteCount32(1, 1), std::optional<std::uint32_t>{ 4 });
+    CHECK(!TryBitmapBytes(0, 1));
+    CHECK(!TryBitmapBytes(16385, 16385));
+    CHECK(Bitmap::Create(16385, 16385).IsEmpty());
+}
+
+TEST(ScaleImage_RejectsInvalidFactorsAndOversizedOutput)
+{
+    Bitmap const image = Bitmap::Create(10, 10);
+    CHECK(ScaleImage(image, std::numeric_limits<double>::quiet_NaN()).IsEmpty());
+    CHECK(ScaleImage(image, std::numeric_limits<double>::infinity()).IsEmpty());
+    CHECK(ScaleImage(image, 0).IsEmpty());
+    CHECK(ScaleImage(image, -1).IsEmpty());
+    CHECK(ScaleImage(image, 1e300).IsEmpty());
+    CHECK(ScaleImage(image, 10000).IsEmpty());
+}
+
 TEST(TopColors_StringsAndScaledSize)
 {
     Bitmap image = Bitmap::Create(500, 500);
-    for (int y = 0; y < 500; ++y)
     {
         for (int x = 0; x < 500; ++x)
         {

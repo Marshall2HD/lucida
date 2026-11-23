@@ -38,7 +38,8 @@ namespace Eikon::Core
         // The pixel area concealed: rect clamped into the image (ClampArea).
         Rect Area() const;
         // The concealing bitmap for the current rect and mode, regenerated when they change; nullptr
-        // while the text boxes for this rect are still unknown, or without a source image.
+        // while the text boxes for this rect are still unknown, it conservatively uses the matching
+        // full-area mode; nullptr is returned only without a usable source image.
         std::shared_ptr<Bitmap const> Concealed(Bitmap const& source, double dpr) const;
         // OCR result for `forArea` (word boxes relative to that area, pixels).
         void SetTextBoxes(Rect const& forArea, std::vector<Rect> boxes);
@@ -50,6 +51,7 @@ namespace Eikon::Core
         mutable Rect m_bitmapArea;
         mutable std::wstring m_bitmapMode;
         mutable int m_bitmapSize = -1;
+        mutable bool m_bitmapTextSettled = false;
         Rect m_boxesArea{ -1, -1, -1, -1 };
         std::vector<Rect> m_boxes;
     };

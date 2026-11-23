@@ -84,16 +84,16 @@
             <Color x:Key="CandyAccentSoftColor">#FF000000</Color>
             <Color x:Key="CandyCoralColor">#FFFFFFFF</Color>
             <SolidColorBrush x:Key="CandyBaseBrush" Color="{ThemeResource SystemColorWindowColor}" />
-            <SolidColorBrush x:Key="CandyInkBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="CandyInkBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="CandyInk2Brush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="CandyMutedBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
-            <SolidColorBrush x:Key="CandyLineBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="CandyLineBrush" Color="{ThemeResource SystemColorButtonTextColor}" />
             <SolidColorBrush x:Key="CandySurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="CandySurface2Brush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="CandyAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="CandyAccentSoftBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="CandyCoralBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
-            <SolidColorBrush x:Key="CandyOnInkBrush" Color="{ThemeResource SystemColorButtonTextColor}" />
+            <SolidColorBrush x:Key="CandyOnInkBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
             <SolidColorBrush x:Key="CandyGhostBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
             <SolidColorBrush x:Key="CandyHoverBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="CandyPressedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
@@ -107,12 +107,12 @@
     <FontFamily x:Key="CandyDisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
 
     <!-- Primary button: ink fill, base-coloured bold text, radius 8. In high contrast the ink brush is
-         the window text colour, so the button keeps a system-coloured outline instead. -->
+         high-contrast system highlight and text colours, with a visible system button-text border. -->
     <Style x:Key="CandyInkButtonStyle" TargetType="Button">
         <Setter Property="Background" Value="{ThemeResource CandyInkBrush}" />
         <Setter Property="Foreground" Value="{ThemeResource CandyOnInkBrush}" />
-        <Setter Property="BorderBrush" Value="{ThemeResource CandyInkBrush}" />
-        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="BorderBrush" Value="{ThemeResource CandyLineBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Padding" Value="16,8" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="Bold" />

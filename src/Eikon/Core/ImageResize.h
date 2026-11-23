@@ -27,7 +27,7 @@ namespace Eikon::Core
         Ok,
         NoImage,    // "Error" / "No image to resize"
         TooSmall,   // "Can't resize the image" / "New size is too small" (<= 0)
-        TooLarge,   // "Can't resize the image" / "New size is too large" (> 22000)
+        TooLarge,   // "Can't resize the image" / "New size is too large" (> 16384)
         SameSize,   // just closes the helper
     };
     ResizeCheck CheckResize(std::int64_t width, std::int64_t height, std::int64_t currentWidth, std::int64_t currentHeight) noexcept;

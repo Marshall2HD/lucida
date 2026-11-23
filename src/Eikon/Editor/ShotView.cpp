@@ -5,6 +5,7 @@
 #include "Editor/ShotView.h"
 
 #include "Editor/BackdropRender.h"
+#include "Editor/Compose.h"
 
 #include "Core/Capture.h"
 #include "Core/CropGeometry.h"
@@ -106,6 +107,8 @@ namespace Eikon::Editor
         m_createResourcesToken = m_canvas.CreateResources([this](canvas::UI::Xaml::CanvasControl const&, canvas::UI::CanvasCreateResourcesEventArgs const&) {
             m_bitmap = nullptr;
             m_bitmapSource.reset();
+            Render::ClearDeviceCaches();
+            BackdropRender::ClearDeviceCaches();
         });
         m_pressedToken = m_canvas.PointerPressed([this](auto&&, PointerRoutedEventArgs const& args) { OnPressed(args); });
         m_movedToken = m_canvas.PointerMoved([this](auto&&, PointerRoutedEventArgs const& args) { OnMoved(args); });
@@ -119,11 +122,13 @@ namespace Eikon::Editor
             }
         });
         m_captureLostToken = m_canvas.PointerCaptureLost([this](auto&&, PointerRoutedEventArgs const&) {
-            if (m_drag == Drag::Pan || m_drag == Drag::ZoomRect)
-            {
-                m_drag = Drag::None;
-                Invalidate();
-            }
+            // A capture loss has no matching MouseUp. Never leave a half-created object,
+            // crop gesture, pan/zoom rect or snap guides live for the next pointer.
+            if (m_drag == Drag::Objects) m_objects.CancelDrag();
+            if (m_drag == Drag::Crop) m_crop.Reset();
+            m_drag = Drag::None;
+            m_hasPointer = false;
+            Invalidate();
         });
         m_sizeToken = m_canvas.SizeChanged([this](auto&&, auto&&) { UpdateArea(); });
 
@@ -142,6 +147,7 @@ namespace Eikon::Editor
     {
         if (m_document)
         {
+            Render::ClearOcrCache(m_document->ImageGeneration());
             m_document->Changed.Remove(m_documentChangedToken);
             m_document->backdrop.Changed.Remove(m_backdropChangedToken);
         }
@@ -173,6 +179,7 @@ namespace Eikon::Editor
     {
         if (m_document)
         {
+            Render::ClearOcrCache(m_document->ImageGeneration());
             m_document->Changed.Remove(m_documentChangedToken);
             m_document->backdrop.Changed.Remove(m_backdropChangedToken);
         }
@@ -649,7 +656,29 @@ namespace Eikon::Editor
             Core::Rect const bounds = m_document->Source().Union(m_document->Canvas());
             int const width = static_cast<int>(std::ceil(bounds.width));
             int const height = static_cast<int>(std::ceil(bounds.height));
+            if (!Core::TryBitmapBytes(width, height))
+            {
+                OutputDebugStringW(L"Eikon: rasterizing output is too large\n");
+                return;
+            }
             auto device = canvas::CanvasDevice::GetSharedDevice();
+            int const maxSize = device.MaximumBitmapSizeInPixels();
+            if (width > maxSize || height > maxSize || m_document->Image().width > maxSize || m_document->Image().height > maxSize)
+            {
+                // Compose uses legal 2-D tiles and is the safe flattening path for
+                // captures which cannot be represented by one CanvasRenderTarget.
+                if (auto flat = Compose(*m_document, ComposeOptions{ .ignoreBackdrop = true }))
+                {
+                    m_objects.Deselect();
+                    m_document->ReplaceObjects({});
+                    Render::ClearOcrCache(m_document->ImageGeneration());
+                    m_document->ReplaceImage(Core::Bitmap{ *flat }, { 0, 0 });
+                    RefreshCanvas();
+                    RecordUndo();
+                    Changed();
+                }
+                return;
+            }
             canvas::CanvasRenderTarget target{ device, static_cast<float>(width), static_cast<float>(height), 96.0f };
             auto const& image = m_document->ImagePtr();
             auto source = canvas::CanvasBitmap::CreateFromBytes(device, winrt::array_view<std::uint8_t const>(image->pixels), image->width,
@@ -663,6 +692,7 @@ namespace Eikon::Editor
                 context.dpr = ImageDpr();
                 context.rasterScale = 1;
                 context.origin = { -bounds.x, -bounds.y };
+                context.imageGeneration = m_document->ImageGeneration();
                 context.image = source;
                 Render::DrawSpotlights(session, m_document->Objects(), context, m_document->Source());
                 for (auto const& object : m_document->Objects())
@@ -680,6 +710,7 @@ namespace Eikon::Editor
             flat.pixels.assign(bytes.begin(), bytes.end());
             m_objects.Deselect();
             m_document->ReplaceObjects({});
+            Render::ClearOcrCache(m_document->ImageGeneration());
             m_document->ReplaceImage(std::move(flat), { -bounds.x, -bounds.y });
             RefreshCanvas();
             RecordUndo();
@@ -1379,12 +1410,19 @@ namespace Eikon::Editor
             }
         }
         auto const& image = m_document->ImagePtr();
-        if (!m_bitmap || m_bitmapSource != image)
+        int const maxSize = sender.Device().MaximumBitmapSizeInPixels();
+        bool const singleBitmap = image->width <= maxSize && image->height <= maxSize;
+        if (singleBitmap && (!m_bitmap || m_bitmapSource != image))
         {
             m_bitmap = canvas::CanvasBitmap::CreateFromBytes(sender, winrt::array_view<std::uint8_t const>(image->pixels), image->width,
                 image->height, winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 96.0f,
                 canvas::CanvasAlphaMode::Premultiplied);
             m_bitmapSource = image;
+        }
+        if (!singleBitmap)
+        {
+            m_bitmap = nullptr;
+            m_bitmapSource.reset();
         }
         double const k = m_framer.dpr;
         Core::Point const pan = m_framer.RoundedPan();
@@ -1392,6 +1430,8 @@ namespace Eikon::Editor
         m_context.dpr = ImageDpr();
         m_context.rasterScale = k;
         m_context.origin = { pan.x / k, pan.y / k };
+        m_context.sourceOrigin = {};
+        m_context.imageGeneration = m_document->ImageGeneration();
         m_context.image = m_bitmap;
         Render::SyncEnvironment(m_document, m_context, [this] { Invalidate(); });
 
@@ -1400,7 +1440,34 @@ namespace Eikon::Editor
         auto const canvasRect = m_context.ToCanvasRect(m_framer.canvas);
         Core::Rect const crop = m_document->Crop();
         auto const drawContent = [&] {
-            Render::DrawImage(session, m_bitmap, crop, m_context.ToCanvasRect(crop), m_framer.zoom);
+            if (m_bitmap)
+            {
+                Render::DrawImage(session, m_bitmap, crop, m_context.ToCanvasRect(crop), m_framer.zoom);
+            }
+            else
+            {
+                // A >MaximumBitmapSize capture is shown as source tiles. This keeps the
+                // editor useful instead of silently drawing a blank CanvasBitmap.
+                int const side = std::max(1, std::min(maxSize, 2048));
+                Core::Rect const shown = crop.Standardized();
+                for (int y = static_cast<int>(shown.Top()); y < static_cast<int>(std::ceil(shown.Bottom())); y += side)
+                for (int x = static_cast<int>(shown.Left()); x < static_cast<int>(std::ceil(shown.Right())); x += side)
+                {
+                    int const w = std::min(side, static_cast<int>(std::ceil(shown.Right())) - x);
+                    int const h = std::min(side, static_cast<int>(std::ceil(shown.Bottom())) - y);
+                    auto bytes = Core::TryBitmapBytes(w, h);
+                    if (!bytes || x < 0 || y < 0 || x + w > image->width || y + h > image->height) continue;
+                    std::vector<std::uint8_t> packed(*bytes);
+                    for (int row = 0; row < h; ++row)
+                        std::memcpy(packed.data() + static_cast<std::size_t>(row) * w * 4,
+                                    image->pixels.data() + image->Stride() * static_cast<std::size_t>(y + row) + static_cast<std::size_t>(x) * 4,
+                                    static_cast<std::size_t>(w) * 4);
+                    auto tile = canvas::CanvasBitmap::CreateFromBytes(sender, winrt::array_view<std::uint8_t const>(packed), w, h,
+                        winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 96.0f, canvas::CanvasAlphaMode::Premultiplied);
+                    Core::Rect const part{ static_cast<double>(x), static_cast<double>(y), static_cast<double>(w), static_cast<double>(h) };
+                    Render::DrawImage(session, tile, { 0, 0, static_cast<double>(w), static_cast<double>(h) }, m_context.ToCanvasRect(part), m_framer.zoom);
+                }
+            }
             auto const clip = session.CreateLayer(1.0f, canvasRect);
             Render::DrawSpotlights(session, m_document->Objects(), m_context, m_document->Source());
             for (auto const& object : m_document->Objects())

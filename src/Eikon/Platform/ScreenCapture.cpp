@@ -1,14 +1,19 @@
 #include "pch.h"
 #include "Platform/ScreenCapture.h"
 
+#include "Core/Capture.h"
+
 #include "Platform/ImageLoader.h"
 
 #include <wil/com.h>
 #include <shobjidl_core.h>
 
+#include <atomic>
 #include <cmath>
 #include <cstring>
+#include <memory>
 #include <set>
+#include <thread>
 
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "user32.lib")
@@ -397,6 +402,66 @@ namespace Eikon::ScreenCapture
             }
         }
 
+        bool PrintWindowBounded(HWND window, std::shared_ptr<Dib> const& dib)
+        {
+            if (IsHungAppWindow(window))
+            {
+                Log(L"PrintWindow skipped for a hung window");
+                return false;
+            }
+            DWORD_PTR ignored = 0;
+            if (!SendMessageTimeoutW(window, WM_NULL, 0, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 200, &ignored))
+            {
+                Log(L"PrintWindow skipped after hung-window probe");
+                return false;
+            }
+            struct Work
+            {
+                HANDLE done = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+                std::atomic<bool> result{ false };
+                ~Work() { if (done) CloseHandle(done); }
+            };
+            auto work = std::make_shared<Work>();
+            if (!work->done)
+            {
+                return false;
+            }
+            std::thread worker([work, dib, window] {
+                work->result = PrintWindow(window, dib->dc.get(), PW_RENDERFULLCONTENT) != FALSE;
+                SetEvent(work->done);
+            });
+            if (WaitForSingleObject(work->done, 1000) != WAIT_OBJECT_0)
+            {
+                Log(L"PrintWindow timed out");
+                worker.detach(); // `work` remains alive until the worker returns.
+                return false;
+            }
+            worker.join();
+            return work->result.load();
+        }
+
+        Core::WindowShadowStyle ShadowStyleFor(HWND window, double dpr)
+        {
+            if (IsZoomed(window))
+            {
+                return {};
+            }
+            DWM_WINDOW_CORNER_PREFERENCE preference = DWMWCP_DEFAULT;
+            DwmGetWindowAttribute(window, DWMWA_WINDOW_CORNER_PREFERENCE, &preference, sizeof(preference));
+            double const scale = (std::max)(dpr, 1.0);
+            Core::WindowShadowStyle style;
+            style.left = static_cast<int>(std::lround(20 * scale));
+            style.top = static_cast<int>(std::lround(16 * scale));
+            style.right = static_cast<int>(std::lround(20 * scale));
+            style.bottom = static_cast<int>(std::lround(28 * scale));
+            style.blurRadius = static_cast<int>(std::lround(12 * scale));
+            style.offsetY = static_cast<int>(std::lround(6 * scale));
+            style.opacity = 0x48;
+            style.cornerRadius = preference == DWMWCP_DONOTROUND ? 0 :
+                                 static_cast<int>(std::lround((preference == DWMWCP_ROUNDSMALL ? 4.0 : 8.0) * scale));
+            return style;
+        }
+
         // Draws `image` into `canvas` at (x, y), clipped (opaque copy).
         void Paste(Core::Bitmap& canvas, Core::Bitmap const& image, int x, int y)
         {
@@ -565,31 +630,26 @@ namespace Eikon::ScreenCapture
         if (width > 0 && height > 0 && w > 0 && h > 0 && x >= 0 && y >= 0 && x + w <= width && y + h <= height)
         {
             HDC const screen = GetDC(nullptr);
-            Dib dib;
-            bool const created = screen && dib.Create(screen, width, height);
+            auto dib = std::make_shared<Dib>();
+            bool const created = screen && dib->Create(screen, width, height);
             if (screen)
             {
                 ReleaseDC(nullptr, screen);
             }
-            if (created && PrintWindow(window.handle, dib.dc.get(), PW_RENDERFULLCONTENT))
+            if (created && PrintWindowBounded(window.handle, dib))
             {
                 GdiFlush();
-                Core::Bitmap bitmap = dib.Extract(x, y, w, h, window.scale);
+                Core::Bitmap bitmap = dib->Extract(x, y, w, h, window.scale);
                 if (!IsBlank(bitmap))
                 {
                     RestoreBorder(bitmap, window);
                     bitmap.screenRect = Core::Rect{ static_cast<double>(bounds.left), static_cast<double>(bounds.top), static_cast<double>(w), static_cast<double>(h) };
-                    return bitmap;
+                    return Core::AddWindowShadow(std::move(bitmap), ShadowStyleFor(window.handle, window.scale));
                 }
             }
-            Log(L"PrintWindow gave nothing; using the screen pixels");
+            Log(L"PrintWindow gave nothing");
         }
-        auto bitmap = Blit(bounds, false, window.scale);
-        if (bitmap)
-        {
-            bitmap->dpr = window.scale;
-        }
-        return bitmap;
+        return std::nullopt;
     }
 
     Core::Bitmap PrimaryWallpaper()

@@ -62,9 +62,10 @@ namespace winrt::Eikon::implementation
         }
     }
 
-    void AdvancedSettingsPage::OnSettingChanged(std::wstring_view key)
+    void AdvancedSettingsPage::OnSettingChanged(std::wstring_view)
     {
-        if (!m_loading && (key == Settings::kSaveOnEsc || key == Settings::kCopyOnEsc || key == Settings::kAlwaysOnTop || key == Settings::kShowMenubarIcon))
+        // Do not leave a stale toggle/combo visible when Settings changes elsewhere.
+        if (!m_loading)
         {
             LoadValues();
         }

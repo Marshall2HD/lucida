@@ -185,20 +185,28 @@ TEST(S3_ResolveTargetRules)
     CHECK_EQ(S3::CanonicalUri(std::get<S3::Target>(aws), "a/b c.png"), std::string{ "/a/b%20c.png" });
 
     // Endpoint with a region keeps it; path style puts the bucket first.
-    auto minio = S3::ResolveTarget({ L"a", L"s", L"eu-1", L"minio.local:9000/", L"pics" });
+    auto minio = S3::ResolveTarget({ L"a", L"s", L"eu-1", L"minio.local:9000", L"pics" });
     CHECK_EQ(std::get<S3::Target>(minio).host, std::string{ "minio.local:9000" });
     CHECK_EQ(std::get<S3::Target>(minio).region, std::string{ "eu-1" });
     CHECK_EQ(S3::CanonicalUri(std::get<S3::Target>(minio), "k.png"), std::string{ "/pics/k.png" });
 
-    // Only cloudflarestorage.com endpoints lose a trailing "/<bucket>".
-    auto other = S3::ResolveTarget({ L"a", L"s", L"", L"https://s3.example.com/pics", L"pics" });
-    CHECK_EQ(std::get<S3::Target>(other).host, std::string{ "s3.example.com/pics" });
-    auto r2 = S3::ResolveTarget({ L"a", L"s", L"", L"x.r2.cloudflarestorage.com/other", L"pics" });
-    CHECK_EQ(std::get<S3::Target>(r2).host, std::string{ "x.r2.cloudflarestorage.com/other" });
+    // Endpoints are host[:port], optionally https://, with only Cloudflare's /bucket suffix accepted.
+    auto invalid = [](std::wstring_view endpoint) {
+        return std::holds_alternative<std::wstring>(S3::ResolveTarget({ L"a", L"s", L"", std::wstring{ endpoint }, L"pics" }));
+    };
+    CHECK(invalid(L"http://h.example"));
+    CHECK(invalid(L"https://user@h.example"));
+    CHECK(invalid(L"https://h.example/other"));
+    CHECK(invalid(L"https://h.example/?q"));
+    CHECK(invalid(L"h.example#fragment"));
+    CHECK(invalid(L" h.example"));
+    CHECK(invalid(L"h.example:0"));
+    CHECK(invalid(L"h.example:99999"));
+    CHECK(invalid(L"bad_host.example"));
 
-    // "http://" is not stripped.
-    auto http = S3::ResolveTarget({ L"a", L"s", L"", L"http://h.example", L"b" });
-    CHECK_EQ(std::get<S3::Target>(http).host, std::string{ "http://h.example" });
+    // Cloudflare's pasted /bucket form is the one supported endpoint path.
+    auto r2 = S3::ResolveTarget({ L"a", L"s", L"", L"x.r2.cloudflarestorage.com/pics", L"pics" });
+    CHECK_EQ(std::get<S3::Target>(r2).host, std::string{ "x.r2.cloudflarestorage.com" });
 
     auto missing = S3::ResolveTarget({ L"a", L"s", L"", L"", L"b" });
     CHECK(std::holds_alternative<std::wstring>(missing));
@@ -235,7 +243,9 @@ TEST(S3_ObjectNameAndKey)
 TEST(S3_PublicUrl)
 {
     CHECK_EQ(S3::PublicUrl(L"https://cdn.example.com", "shots/n.png").value_or(L"?"), std::wstring{ L"https://cdn.example.com/shots/n.png" });
-    CHECK_EQ(S3::PublicUrl(L"https://cdn.example.com/", "n b.png").value_or(L"?"), std::wstring{ L"https://cdn.example.com/n b.png" });
+    CHECK_EQ(S3::PublicUrl(L"https://cdn.example.com/", "n b.png").value_or(L"?"), std::wstring{ L"https://cdn.example.com/n%20b.png" });
+    CHECK_EQ(S3::PublicUrl(L"https://cdn.example.com", "dir/a b%?#/\xE1\x88\xB4.png").value_or(L"?"),
+             std::wstring{ L"https://cdn.example.com/dir/a%20b%25%3F%23/%E1%88%B4.png" });
     CHECK(!S3::PublicUrl(L"cdn.example.com", "n.png"));
     CHECK(!S3::PublicUrl(L"https://localhost", "n.png"));
 }

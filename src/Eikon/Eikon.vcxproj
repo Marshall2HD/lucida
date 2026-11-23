@@ -165,6 +165,11 @@
     <Image Include="Assets\Cursors\*.png" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="Assets\THIRD_PARTY_NOTICES.md">
+      <DeploymentContent>true</DeploymentContent>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
     <ResourceCompile Include="Eikon.rc" />
   </ItemGroup>
   <ItemGroup>

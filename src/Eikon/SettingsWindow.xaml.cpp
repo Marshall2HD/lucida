@@ -184,6 +184,7 @@ namespace winrt::Eikon::implementation
         else if (tag == L"hotkeys") pageType = winrt::xaml_typename<winrt::Eikon::HotkeysSettingsPage>();
         else if (tag == L"uploading") pageType = winrt::xaml_typename<winrt::Eikon::UploadSettingsPage>();
         else if (tag == L"advanced") pageType = winrt::xaml_typename<winrt::Eikon::AdvancedSettingsPage>();
+        else if (tag == L"about") pageType = winrt::xaml_typename<winrt::Eikon::AboutSettingsPage>();
         else return;
         m_currentTag = tag;
         ContentFrame().Navigate(pageType, nullptr, winrt::EntranceNavigationTransitionInfo{});

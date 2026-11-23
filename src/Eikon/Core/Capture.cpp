@@ -1,8 +1,10 @@
 #include "pch.h"
 #include "Core/Capture.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace Eikon::Core
 {
@@ -62,6 +64,64 @@ namespace Eikon::Core
         {
             return static_cast<int>(std::trunc(value));
         }
+
+        std::uint8_t RoundedCoverage(int x, int y, int width, int height, int radius) noexcept
+        {
+            if (radius <= 0)
+            {
+                return 255;
+            }
+            int inside = 0;
+            constexpr int kSamples = 4;
+            for (int sy = 0; sy < kSamples; ++sy)
+            {
+                for (int sx = 0; sx < kSamples; ++sx)
+                {
+                    double const px = static_cast<double>(x) + (static_cast<double>(sx) + 0.5) / kSamples;
+                    double const py = static_cast<double>(y) + (static_cast<double>(sy) + 0.5) / kSamples;
+                    double const dx = (std::max)({ static_cast<double>(radius) - px, 0.0, px - (width - radius) });
+                    double const dy = (std::max)({ static_cast<double>(radius) - py, 0.0, py - (height - radius) });
+                    if (dx * dx + dy * dy <= static_cast<double>(radius) * radius)
+                    {
+                        ++inside;
+                    }
+                }
+            }
+            return static_cast<std::uint8_t>((inside * 255 + (kSamples * kSamples) / 2) / (kSamples * kSamples));
+        }
+
+        void BlurAlpha(std::vector<std::uint8_t>& alpha, int width, int height, int radius)
+        {
+            if (radius <= 0)
+            {
+                return;
+            }
+            std::vector<std::uint8_t> temporary(alpha.size());
+            auto blur = [radius](std::vector<std::uint8_t> const& from, std::vector<std::uint8_t>& to, int width, int height, bool horizontal) {
+                for (int y = 0; y < height; ++y)
+                {
+                    for (int x = 0; x < width; ++x)
+                    {
+                        int sum = 0;
+                        int count = 0;
+                        for (int d = -radius; d <= radius; ++d)
+                        {
+                            int const px = horizontal ? x + d : x;
+                            int const py = horizontal ? y : y + d;
+                            if (px >= 0 && px < width && py >= 0 && py < height)
+                            {
+                                sum += from[static_cast<std::size_t>(py) * static_cast<std::size_t>(width) + static_cast<std::size_t>(px)];
+                                ++count;
+                            }
+                        }
+                        to[static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)] =
+                            static_cast<std::uint8_t>((sum + count / 2) / count);
+                    }
+                }
+            };
+            blur(alpha, temporary, width, height, true);
+            blur(temporary, alpha, width, height, false);
+        }
     }
 
     std::optional<ShadowMode> ParseShadowMode(std::wstring_view value) noexcept
@@ -73,6 +133,89 @@ namespace Eikon::Core
         return std::nullopt;
     }
 
+    Bitmap AddWindowShadow(Bitmap image, WindowShadowStyle const& style)
+    {
+        if (image.IsEmpty() || (style.left <= 0 && style.top <= 0 && style.right <= 0 && style.bottom <= 0 && style.cornerRadius <= 0))
+        {
+            return image;
+        }
+        constexpr int kMaxStyleExtent = 16384;
+        int const left = std::clamp(style.left, 0, kMaxStyleExtent);
+        int const top = std::clamp(style.top, 0, kMaxStyleExtent);
+        int const right = std::clamp(style.right, 0, kMaxStyleExtent);
+        int const bottom = std::clamp(style.bottom, 0, kMaxStyleExtent);
+        std::int64_t const outputWidth = static_cast<std::int64_t>(image.width) + left + right;
+        std::int64_t const outputHeight = static_cast<std::int64_t>(image.height) + top + bottom;
+        if (outputWidth > (std::numeric_limits<int>::max)() || outputHeight > (std::numeric_limits<int>::max)())
+        {
+            return image;
+        }
+        int const width = static_cast<int>(outputWidth);
+        int const height = static_cast<int>(outputHeight);
+        auto const byteCount = TryBitmapBytes(width, height);
+        if (!byteCount)
+        {
+            return image;
+        }
+        int const radius = std::clamp(style.cornerRadius, 0, (std::min)(image.width, image.height) / 2);
+        int const blurRadius = std::clamp(style.blurRadius, 0, 128);
+        int const offsetY = std::clamp(style.offsetY, 0, kMaxStyleExtent);
+
+        Bitmap canvas;
+        canvas.width = width;
+        canvas.height = height;
+        canvas.dpr = image.dpr;
+        canvas.screenRect = image.screenRect.IsEmpty()
+            ? Rect{}
+            : Rect{ image.screenRect.x - left, image.screenRect.y - top, static_cast<double>(width), static_cast<double>(height) };
+        canvas.pixels.assign(*byteCount, 0);
+
+        std::vector<std::uint8_t> coverage(static_cast<std::size_t>(image.width) * static_cast<std::size_t>(image.height));
+        std::vector<std::uint8_t> shadow(canvas.pixels.size() / 4, 0);
+        for (int y = 0; y < image.height; ++y)
+        {
+            for (int x = 0; x < image.width; ++x)
+            {
+                std::uint8_t const cov = RoundedCoverage(x, y, image.width, image.height, radius);
+                coverage[static_cast<std::size_t>(y) * static_cast<std::size_t>(image.width) + static_cast<std::size_t>(x)] = cov;
+                int const shadowY = top + y + offsetY;
+                if (shadowY >= 0 && shadowY < height)
+                {
+                    shadow[static_cast<std::size_t>(shadowY) * static_cast<std::size_t>(width) + static_cast<std::size_t>(left + x)] = cov;
+                }
+            }
+        }
+        BlurAlpha(shadow, width, height, blurRadius);
+        std::uint8_t peak = 0;
+        for (std::uint8_t alpha : shadow)
+        {
+            peak = (std::max)(peak, alpha);
+        }
+        if (peak > 0)
+        {
+            for (std::size_t i = 0; i < shadow.size(); ++i)
+            {
+                canvas.pixels[i * 4 + 3] = static_cast<std::uint8_t>((static_cast<unsigned>(shadow[i]) * style.opacity + peak / 2) / peak);
+            }
+        }
+        for (int y = 0; y < image.height; ++y)
+        {
+            for (int x = 0; x < image.width; ++x)
+            {
+                std::uint8_t const cov = coverage[static_cast<std::size_t>(y) * static_cast<std::size_t>(image.width) + static_cast<std::size_t>(x)];
+                std::uint8_t const* source = image.pixels.data() + static_cast<std::size_t>(y) * image.Stride() + static_cast<std::size_t>(x) * 4;
+                std::uint8_t masked[4];
+                for (int channel = 0; channel < 4; ++channel)
+                {
+                    masked[channel] = static_cast<std::uint8_t>((static_cast<unsigned>(source[channel]) * cov + 127) / 255);
+                }
+                std::uint8_t* destination = canvas.pixels.data() + static_cast<std::size_t>(top + y) * canvas.Stride() + static_cast<std::size_t>(left + x) * 4;
+                Blend(destination, masked);
+            }
+        }
+        return canvas;
+    }
+
     ShadowPaddings ComputeShadowPaddings(Bitmap const& image) noexcept
     {
         ShadowPaddings paddings;
@@ -80,43 +223,29 @@ namespace Eikon::Core
         {
             return paddings;
         }
-        // The scan walks the raw buffer with byte offsets and stops at its end, so a scan longer than a
-        // row runs into the neighbouring row.
-        auto const total = static_cast<std::int64_t>(image.Stride()) * image.height;
-        auto const stride = static_cast<std::int64_t>(image.Stride());
-        auto opaqueAt = [&](std::int64_t offset, bool& outside) {
-            if (offset < 0 || offset + 3 >= total)
+        auto scan = [&](int startX, int startY, int stepX, int stepY) {
+            for (int index = 0; index < kMaxScan; ++index)
             {
-                outside = true;
-                return false;
-            }
-            return image.pixels[static_cast<std::size_t>(offset + 3)] > kAlphaThreshold;
-        };
-        // Index of the first opaque pixel along `step` from `start`; the count reached when the buffer
-        // ends; 0 when nothing opaque is within 300 px. Padding = max(index, 1) - 1.
-        auto scan = [&](std::int64_t start, std::int64_t step) {
-            int index = 0;
-            for (; index < kMaxScan; ++index)
-            {
-                bool outside = false;
-                if (opaqueAt(start + step * index, outside) || outside)
+                int const x = startX + stepX * index;
+                int const y = startY + stepY * index;
+                if (x < 0 || x >= image.width || y < 0 || y >= image.height)
                 {
                     break;
                 }
+                if (AlphaAt(image, x, y) > kAlphaThreshold)
+                {
+                    return (std::max)(index, 1) - 1;
+                }
             }
-            if (index == kMaxScan)
-            {
-                index = 0;
-            }
-            return (std::max)(index, 1) - 1;
+            return 0;
         };
 
-        std::int64_t const middleRow = static_cast<std::int64_t>(image.height / 2) * stride;
-        paddings.left = scan(middleRow, 4);
-        paddings.right = scan(middleRow + static_cast<std::int64_t>(image.width - 1) * 4, -4);
-        int const column = paddings.left + (image.width - paddings.left - paddings.right) / 2;
-        paddings.top = scan(static_cast<std::int64_t>(column) * 4, stride);
-        paddings.bottom = scan(static_cast<std::int64_t>(image.height - 1) * stride + static_cast<std::int64_t>(column) * 4, -stride);
+        int const middleRow = image.height / 2;
+        paddings.left = scan(0, middleRow, 1, 0);
+        paddings.right = scan(image.width - 1, middleRow, -1, 0);
+        int const column = std::clamp(paddings.left + (image.width - paddings.left - paddings.right) / 2, 0, image.width - 1);
+        paddings.top = scan(column, 0, 0, 1);
+        paddings.bottom = scan(column, image.height - 1, 0, -1);
         return paddings;
     }
 

@@ -77,6 +77,23 @@ namespace winrt::Eikon::implementation
         DispatcherShutdownMode(winrt::Microsoft::UI::Xaml::DispatcherShutdownMode::OnExplicitShutdown);
     }
 
+    App::~App()
+    {
+        if (m_alive)
+        {
+            *m_alive = false;
+        }
+        try
+        {
+            auto instance = AppInstance::GetCurrent();
+            instance.Activated(m_activatedToken);
+        }
+        catch (...)
+        {
+        }
+        ::Eikon::AppController::Current().Shutdown();
+    }
+
     void App::OnLaunched(Microsoft::UI::Xaml::LaunchActivatedEventArgs const&)
     {
         m_dispatcher = Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
@@ -84,7 +101,7 @@ namespace winrt::Eikon::implementation
         ::Eikon::AppController::Current().Start();
 
         auto instance = AppInstance::GetCurrent();
-        instance.Activated({ this, &App::OnActivated });
+        m_activatedToken = instance.Activated({ this, &App::OnActivated });
         HandleActivation(Snapshot(instance.GetActivatedEventArgs()), true);
     }
 
@@ -99,7 +116,13 @@ namespace winrt::Eikon::implementation
         {
             return; // the redirecting process is already gone; nothing to act on
         }
-        m_dispatcher.TryEnqueue([this, activation = std::move(activation)] {
+        std::weak_ptr<bool> const alive = m_alive;
+        m_dispatcher.TryEnqueue([this, alive, activation = std::move(activation)] {
+            auto const guard = alive.lock();
+            if (!guard || !*guard)
+            {
+                return;
+            }
             try
             {
                 HandleActivation(activation, false);

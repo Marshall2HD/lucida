@@ -7,6 +7,7 @@
 #include "Platform/QuickLook.h"
 
 #include <chrono>
+#include <deque>
 #include <list>
 #include <map>
 #include <memory>
@@ -96,7 +97,8 @@ namespace winrt::Eikon::implementation
         void UpdateSelectionVisual(ItemView& view);
         void UpdateAllSelectionVisuals();
         void RequestThumbnail(ItemView& view);
-        winrt::fire_and_forget LoadThumbnail(std::wstring path, int width, int height);
+        void StartThumbnailWorkers();
+        winrt::fire_and_forget LoadThumbnail(std::wstring path, int width, int height, std::uint64_t generation);
         std::optional<std::size_t> HitTest(winrt::Windows::Foundation::Point point) const;
         void Select(std::size_t index, bool extend, bool toggle);
         void SelectOnly(std::size_t index);
@@ -142,6 +144,10 @@ namespace winrt::Eikon::implementation
         std::list<std::wstring> m_lru;
         std::unordered_map<std::wstring, Thumbnail> m_thumbnails;
         std::set<std::wstring> m_loading;
+        struct ThumbnailRequest { std::wstring path; int width; int height; std::uint64_t generation; };
+        std::deque<ThumbnailRequest> m_thumbnailQueue;
+        std::size_t m_thumbnailActive = 0;
+        std::uint64_t m_thumbnailGeneration = 1;
 
         winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer m_tooltipTimer{ nullptr };
         winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer m_statusTimer{ nullptr };

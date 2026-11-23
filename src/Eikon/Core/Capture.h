@@ -9,6 +9,7 @@
 #include "Core/Geometry.h"
 #include "Core/UrlCommand.h"
 
+#include <cstdint>
 #include <optional>
 #include <string_view>
 
@@ -27,6 +28,21 @@ namespace Eikon::Core
     // "transparent", "trimmed", "wallpaper", "solid"; anything else is nullopt.
     // grabScreenshot maps nullopt to Transparent, Add Capture to Wallpaper.
     std::optional<ShadowMode> ParseShadowMode(std::wstring_view value) noexcept;
+
+    struct WindowShadowStyle
+    {
+        int left = 0;
+        int top = 0;
+        int right = 0;
+        int bottom = 0;
+        int cornerRadius = 0;     // 0 = square / maximized
+        int blurRadius = 0;
+        int offsetY = 0;
+        std::uint8_t opacity = 0; // max black shadow alpha
+    };
+
+    // Expands a captured window with a rounded, blurred black drop shadow.
+    Bitmap AddWindowShadow(Bitmap image, WindowShadowStyle const& style);
 
     // Shadow paddings: transparent margin per side, alpha threshold > 150, at most
     // 300 px scanned. Left/right along the middle row, top/bottom along the column at the centre of

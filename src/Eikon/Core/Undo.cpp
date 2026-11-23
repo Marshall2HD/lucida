@@ -1,6 +1,10 @@
 #include "pch.h"
 #include "Core/Undo.h"
 
+#include "Core/Objects/ObjectSupport.h"
+
+#include <cmath>
+
 namespace Eikon::Core
 {
     namespace
@@ -23,7 +27,7 @@ namespace Eikon::Core
             }
             auto number = [json](std::wstring_view key) -> std::optional<double> {
                 auto const* v = json->Find(key);
-                if (!v || !v->IsNumber())
+                if (!v || !v->IsNumber() || !std::isfinite(v->AsNumber()))
                 {
                     return std::nullopt;
                 }
@@ -89,13 +93,30 @@ namespace Eikon::Core
         snapshot.objects = *objects;
         snapshot.cropRect = *crop;
         snapshot.selectionRect = RectFrom(json->Find(L"selectionRect"));
-        if (auto const* selected = json->Find(L"selectedObj"); selected && selected->IsNumber())
+        if (auto const* selected = json->Find(L"selectedObj"))
         {
-            snapshot.selectedObj = static_cast<std::int64_t>(selected->AsNumber());
+            if (!selected->IsNumber())
+            {
+                return std::nullopt;
+            }
+            snapshot.selectedObj = Support::Int64FromJsonNumber(selected->AsNumber());
+            if (!snapshot.selectedObj)
+            {
+                return std::nullopt;
+            }
         }
-        if (auto const* counter = json->Find(L"counterCount"); counter && counter->IsNumber())
+        if (auto const* counter = json->Find(L"counterCount"))
         {
-            snapshot.counterCount = static_cast<std::int32_t>(counter->AsNumber());
+            if (!counter->IsNumber())
+            {
+                return std::nullopt;
+            }
+            auto const count = Support::Int32FromJsonNumber(counter->AsNumber());
+            if (!count)
+            {
+                return std::nullopt;
+            }
+            snapshot.counterCount = *count;
         }
         for (auto const& [name, value] : json->Members())
         {

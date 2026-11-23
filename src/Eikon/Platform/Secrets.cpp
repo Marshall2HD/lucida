@@ -44,7 +44,7 @@ namespace Eikon
             return result;
         }
 
-        std::wstring FromUtf8(std::string const& text)
+        std::wstring FromUtf8(std::string_view text)
         {
             if (text.empty())
             {
@@ -85,10 +85,10 @@ namespace Eikon
                 Log(L"CryptUnprotectData failed");
                 return;
             }
-            std::string const plain{ reinterpret_cast<char const*>(output.pbData), output.cbData };
+            SecureBuffer plain{ output.pbData, output.cbData };
             SecureZeroMemory(output.pbData, output.cbData);
             LocalFree(output.pbData);
-            auto const json = Core::JsonValue::Parse(FromUtf8(plain));
+            auto const json = Core::JsonValue::Parse(FromUtf8(std::string_view{ plain.data(), plain.size() }));
             if (!json || !json->IsObject())
             {
                 Log(L"unreadable secrets file");
@@ -96,9 +96,10 @@ namespace Eikon
             }
             for (auto const& [key, value] : json->Members())
             {
-                if (value.IsString())
+                if (value.IsString() && key != kAllowDeeplinks)
                 {
-                    m_values.insert_or_assign(key, value.AsString());
+                    // Pre-Stage 2 files may contain this key. It is deliberately not restored.
+                    m_values.insert_or_assign(key, SecureString{ value.AsString() });
                 }
             }
         }
@@ -115,13 +116,12 @@ namespace Eikon
             Core::JsonValue json = Core::JsonValue::Object();
             for (auto const& [key, value] : m_values)
             {
-                json.Set(key, Core::JsonValue::String(value));
+                json.Set(key, Core::JsonValue::String(std::wstring{ value.View() }));
             }
-            std::string plain = ToUtf8(json.Serialize());
+            SecureBuffer plain{ ToUtf8(json.Serialize()) };
             DATA_BLOB input{ static_cast<DWORD>(plain.size()), reinterpret_cast<BYTE*>(plain.data()) };
             DATA_BLOB output{};
             BOOL const ok = CryptProtectData(&input, L"Eikon secrets", nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &output);
-            SecureZeroMemory(plain.data(), plain.size());
             if (!ok)
             {
                 Log(L"CryptProtectData failed");
@@ -152,7 +152,7 @@ namespace Eikon
     {
         EnsureLoaded();
         auto const it = m_values.find(key);
-        return it == m_values.end() ? std::wstring{} : it->second;
+        return it == m_values.end() ? std::wstring{} : std::wstring{ it->second.View() };
     }
 
     void Secrets::Set(std::wstring_view key, std::wstring const& value)
@@ -169,11 +169,11 @@ namespace Eikon
         }
         else
         {
-            if (it != m_values.end() && it->second == value)
+            if (it != m_values.end() && it->second.View() == value)
             {
                 return;
             }
-            m_values.insert_or_assign(std::wstring{ key }, value);
+            m_values.insert_or_assign(std::wstring{ key }, SecureString{ value });
         }
         Save();
         Changed(key);
@@ -181,12 +181,15 @@ namespace Eikon
 
     bool Secrets::AllowDeeplinks()
     {
-        return Get(kAllowDeeplinks) == L"true";
+        // Kept only for compatibility with the old Settings toggle.  It no longer authorizes URLs.
+        EnsureLoaded();
+        return false;
     }
 
-    void Secrets::AllowDeeplinks(bool value)
+    void Secrets::AllowDeeplinks(bool)
     {
-        Set(kAllowDeeplinks, value ? L"true" : L"false");
+        // Do not persist a blanket grant; remove any old value on the next write.
+        Set(kAllowDeeplinks, L"");
     }
 
     std::wstring Secrets::S3Access() { return Get(kS3Access); }

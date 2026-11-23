@@ -104,14 +104,11 @@ namespace winrt::Eikon::implementation
         }
     }
 
-    void GeneralSettingsPage::OnSettingChanged(std::wstring_view key)
+    void GeneralSettingsPage::OnSettingChanged(std::wstring_view)
     {
-        if (m_loading)
-        {
-            return;
-        }
-        if (key == Settings::kDefaultFolder || key == Settings::kAfterGrabSave || key == Settings::kAfterGrabShow ||
-            key == Settings::kAfterGrabCopy || key == Settings::kWindowShadow || key == Settings::kWindowSolidColor)
+        // Every displayed setting is reloadable: another Lucida window may have
+        // changed any of them while this page remained open.
+        if (!m_loading)
         {
             LoadValues();
         }

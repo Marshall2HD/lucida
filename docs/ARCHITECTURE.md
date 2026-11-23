@@ -17,8 +17,10 @@ package. See [building.md](building.md) for how to build and test it.
    from the Snipping Tool.
 3. **Area selection always uses Lucida's own selector.** Windows has no system picker that returns a
    rectangle, so `RegionSelector` handles area, window ("Capture Any Window" highlights windows) and
-   repeat capture. The `areaCustomGrabber`/`scrollingCustomGrabber` settings are kept for compatibility
-   of stored settings but have no effect.
+   repeat capture. `areaCustomGrabber` (and the old `scrollingCustomGrabber`) are legacy stored
+   preferences retained only for compatibility; Lucida always uses `RegionSelector`. Likewise,
+   `lucida://uploads` is a legacy command: Lucida has no upload-history service and reports that
+   it cannot open past uploads.
 4. **No accounts, telemetry or update check.** Every feature is available. Uploads go only to an
    S3-compatible bucket the user configures. The Library is off until it is enabled
    (`lucida://settings/library/enable`).
@@ -28,7 +30,8 @@ package. See [building.md](building.md) for how to build and test it.
    calculation, including the ruler's px/pt readout. Saved image DPI is 96 × scale.
 7. **Wheel scrolling:** Windows wheel events scroll by lines, so scrolling capture places each strip by
    its measured shift instead of assuming a fixed step.
-8. **Fonts:** Segoe UI Variable for UI text; the "goofy" text style uses a bundled handwriting font.
+8. **Fonts:** Segoe UI Variable is used for UI text. The editor's "goofy" text style uses **Ink Free**,
+   the Windows system font; Lucida does not bundle a handwriting-font asset.
 9. **Clipboard:** images are written as both `PNG` and `CF_DIBV5`, since most Windows apps read a DIB.
 10. **Icons and cursors.** Tool and UI icons are [Lucide](https://lucide.dev) icons
     (`third_party/lucide`, ISC), rendered by `tools/generate_icons.py` to fixed sizes and tints; the

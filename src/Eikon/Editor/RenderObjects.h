@@ -13,6 +13,13 @@
 
 namespace Eikon::Editor::Render
 {
+    // Drop device-bound CanvasBitmap wrappers after a Win2D device recreation.
+    void ClearDeviceCaches();
+
+    // Discard OCR work/results for a replaced image generation. Async completions for
+    // discarded generations are ignored rather than mutating a new document.
+    void ClearOcrCache(std::uint64_t imageGeneration);
+
     // Keeps Core::Environment() in step with the canvas (Framer dpr and zoom, image bounds and pixels,
     // the counter) and installs the text measurer. `redraw` is called when background work (OCR for
     // the "-text" conceal modes) has a result to show.

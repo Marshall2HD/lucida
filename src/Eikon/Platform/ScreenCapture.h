@@ -71,8 +71,9 @@ namespace Eikon::ScreenCapture
     std::optional<WindowInfo> AttributeArea(RECT const& area);
 
     // The window's own pixels, unoccluded (PrintWindow PW_RENDERFULLCONTENT), cropped to its DWM
-    // bounds, opaque; dpr = its monitor's scale. Falls back to the screen pixels under the bounds
-    // when PrintWindow fails or draws nothing. nullopt on failure.
+    // bounds, with a synthetic transparent DWM-style shadow. Returns nullopt when PrintWindow cannot
+    // produce the window's own pixels; it never falls back to desktop pixels (which could expose an
+    // overlapping window).
     std::optional<Core::Bitmap> CaptureWindow(WindowInfo const& window);
 
     // The desktop wallpaper of the primary monitor as the desktop shows it (IDesktopWallpaper path,

@@ -17,6 +17,7 @@
 #undef ORT_API_MANUAL_INIT
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -60,6 +61,8 @@ namespace Eikon::SubjectMask
             }
         }
 
+        std::atomic_flag g_inFlight = ATOMIC_FLAG_INIT;
+
         int FeatherRadius(Core::Bitmap const& image)
         {
             return std::max(1, static_cast<int>(std::lround(image.dpr)));
@@ -88,10 +91,15 @@ namespace Eikon::SubjectMask
                 }
                 int const w = image.width;
                 int const h = image.height;
+                auto const byteCount = Core::TryPixelByteCount32(w, h);
+                if (!byteCount || image.pixels.size() < *byteCount)
+                {
+                    return std::nullopt;
+                }
                 SoftwareBitmap bitmap{ BitmapPixelFormat::Bgra8, w, h, BitmapAlphaMode::Premultiplied };
-                winrt::Windows::Storage::Streams::Buffer buffer{ static_cast<std::uint32_t>(image.pixels.size()) };
-                std::memcpy(buffer.data(), image.pixels.data(), image.pixels.size());
-                buffer.Length(static_cast<std::uint32_t>(image.pixels.size()));
+                winrt::Windows::Storage::Streams::Buffer buffer{ *byteCount };
+                std::memcpy(buffer.data(), image.pixels.data(), *byteCount);
+                buffer.Length(*byteCount);
                 bitmap.CopyFromBuffer(buffer);
 
                 auto extractor = Imaging::ImageObjectExtractor::CreateWithSoftwareBitmapAsync(bitmap).get();
@@ -254,6 +262,12 @@ namespace Eikon::SubjectMask
 
     winrt::fire_and_forget CutOut(std::shared_ptr<Core::Bitmap const> image, std::function<void(Core::Bitmap)> done)
     {
+        auto const byteCount = image ? Core::TryPixelByteCount32(image->width, image->height) : std::nullopt;
+        if (!image || !done || !byteCount || image->pixels.size() < *byteCount || g_inFlight.test_and_set(std::memory_order_acq_rel))
+        {
+            co_return;
+        }
+        auto clearInFlight = wil::scope_exit([] { g_inFlight.clear(std::memory_order_release); });
         auto const queue = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
         co_await winrt::resume_background();
         auto const started = std::chrono::steady_clock::now();

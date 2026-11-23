@@ -1,6 +1,9 @@
 #pragma once
 
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Storage.h>
+
+#include <string>
 
 namespace Eikon::SystemIntegration
 {
@@ -18,7 +21,9 @@ namespace Eikon::SystemIntegration
     bool AreAppNotificationsEnabled();
 
     // ---- Misc ----
-    void OpenUri(wchar_t const* uri);
+    winrt::fire_and_forget OpenUri(wchar_t const* uri);
+    // Opens a local file through the packaged Windows Launcher.
+    winrt::fire_and_forget OpenFile(std::wstring const& path);
     // Package version "1.2.3" (from Package::Current().Id().Version()).
     winrt::hstring AppVersion();
     // Plays Assets\Sounds\<name>.wav asynchronously (PlaySoundW, SND_ASYNC|SND_FILENAME).

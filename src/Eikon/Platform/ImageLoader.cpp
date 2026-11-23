@@ -8,6 +8,7 @@
 #include <shobjidl_core.h>
 
 #include <cstring>
+#include <limits>
 
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "ole32.lib")
@@ -48,10 +49,15 @@ namespace Eikon::ImageLoader
             {
                 return std::nullopt;
             }
+            auto const bytes = Core::TryBitmapBytes(static_cast<int>(width), static_cast<int>(height));
+            if (!bytes)
+            {
+                return std::nullopt;
+            }
             Core::Bitmap bitmap;
             bitmap.width = static_cast<std::int32_t>(width);
             bitmap.height = static_cast<std::int32_t>(height);
-            bitmap.pixels.resize(bitmap.Stride() * height);
+            bitmap.pixels.resize(*bytes);
             if (FAILED(converter->CopyPixels(nullptr, static_cast<UINT>(bitmap.Stride()), static_cast<UINT>(bitmap.pixels.size()), bitmap.pixels.data())))
             {
                 return std::nullopt;
@@ -77,6 +83,10 @@ namespace Eikon::ImageLoader
                 return bytes;
             }
             SIZE_T const size = ::GlobalSize(handle);
+            if (size == 0 || size > Core::kMaxInputBytes)
+            {
+                return bytes;
+            }
             if (void const* data = ::GlobalLock(handle))
             {
                 auto const* begin = static_cast<std::uint8_t const*>(data);
@@ -146,7 +156,7 @@ namespace Eikon::ImageLoader
     std::optional<Core::Bitmap> DecodeBytes(std::span<std::uint8_t const> bytes)
     {
         auto factory = Factory();
-        if (!factory || bytes.empty())
+        if (!factory || bytes.empty() || bytes.size() > Core::kMaxInputBytes || bytes.size() > (std::numeric_limits<DWORD>::max)())
         {
             return std::nullopt;
         }
@@ -201,10 +211,15 @@ namespace Eikon::ImageLoader
             return {};
         }
         Core::Bitmap out;
+        auto const bytes = Core::TryBitmapBytes(width, height);
+        if (!bytes)
+        {
+            return {};
+        }
         out.width = width;
         out.height = height;
         out.dpr = image.dpr;
-        out.pixels.resize(out.Stride() * static_cast<std::size_t>(height));
+        out.pixels.resize(*bytes);
         if (FAILED(scaler->CopyPixels(nullptr, static_cast<UINT>(out.Stride()), static_cast<UINT>(out.pixels.size()), out.pixels.data())))
         {
             return {};

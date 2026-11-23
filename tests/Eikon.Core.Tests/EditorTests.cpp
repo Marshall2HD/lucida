@@ -9,6 +9,8 @@
 #include "Core/Snapping.h"
 #include "Core/Undo.h"
 
+#include <limits>
+
 using namespace Eikon::Core;
 
 // Expected values are worked out by hand.
@@ -78,9 +80,30 @@ TEST(Framer_ZoomKeepsTheAnchorAndClamps)
     CHECK_EQ(f.zoom, 64.0);
 }
 
-TEST(Framer_FitMarginLadderAndExactHalf)
+TEST(Framer_InvalidZoomsStayFinite)
 {
     Framer f;
+    f.area = { 100, 100 };
+    f.zoom = 0;
+    CHECK((f.ToImage({ 10, 20 }) == Point{ 10, 20 }));
+    CHECK_EQ(Framer::SnapCoarse(0), Framer::kInitialMinZoom);
+    CHECK_EQ(Framer::SnapCoarse(-1), Framer::kInitialMinZoom);
+    CHECK_EQ(Framer::SnapCoarse(std::numeric_limits<double>::infinity()), Framer::kInitialMinZoom);
+    f.ZoomAt(std::numeric_limits<double>::quiet_NaN(), { 20, 20 });
+    CHECK(std::isfinite(f.zoom) && f.zoom > 0);
+    f.ZoomAt(-1, { 20, 20 });
+    CHECK(std::isfinite(f.zoom) && f.zoom > 0);
+    f.ZoomAt(std::numeric_limits<double>::infinity(), { 20, 20 });
+    CHECK(std::isfinite(f.zoom) && f.zoom > 0);
+}
+
+TEST(Undo_ParseRejectsOutOfRangeIntegers)
+{
+    CHECK(!UndoSnapshot::Parse(L"{\"objects\":[],\"cropRect\":{\"x1\":0,\"y1\":0,\"width\":1,\"height\":1},\"selectedObj\":1e300}"));
+    CHECK(!UndoSnapshot::Parse(L"{\"objects\":[],\"cropRect\":{\"x1\":0,\"y1\":0,\"width\":1,\"height\":1},\"counterCount\":1e300}"));
+}
+TEST(Framer_FitMarginLadderAndExactHalf)
+{
     f.area = { 1000, 800 };
     f.dpr = 1;
     // Exactly half: 0.5, no margin, no ladder.
@@ -329,6 +352,17 @@ TEST(Document_CanvasGrowthAndReplaceImage)
     CHECK(d.CanvasGrowth().IsZero());
 }
 
+TEST(Document_ImageGenerationChangesOnReplacement)
+{
+    Document first{ Bitmap::Create(2, 2) };
+    Document second{ Bitmap::Create(2, 2) };
+    std::uint64_t const initial = first.ImageGeneration();
+    CHECK(initial > 0);
+    CHECK(second.ImageGeneration() > initial);
+    first.ReplaceImage(Bitmap::Create(3, 3));
+    CHECK(first.ImageGeneration() > second.ImageGeneration());
+}
+
 TEST(ImageResize_PresetsAspectAndChecks)
 {
     CHECK_EQ(ResizePresetIndex(400, 1200), std::optional<int>{ 1 });    // 33%
@@ -339,8 +373,8 @@ TEST(ImageResize_PresetsAspectAndChecks)
     CHECK_EQ(AspectLocked(600, 1200, 801), std::int64_t{ 401 });         // 400.5 -> 401
     CHECK_EQ(AspectLocked(1, 1000, 10), std::int64_t{ 1 });              // floor of 1
     CHECK_EQ(CheckResize(0, 10, 100, 100), ResizeCheck::TooSmall);
-    CHECK_EQ(CheckResize(22001, 10, 100, 100), ResizeCheck::TooLarge);
-    CHECK_EQ(CheckResize(22000, 10, 100, 100), ResizeCheck::Ok);
+    CHECK_EQ(CheckResize(16385, 10, 100, 100), ResizeCheck::TooLarge);
+    CHECK_EQ(CheckResize(16384, 10, 100, 100), ResizeCheck::Ok);
     CHECK_EQ(CheckResize(100, 100, 100, 100), ResizeCheck::SameSize);
     CHECK_EQ(CheckResize(10, 10, 0, 0), ResizeCheck::NoImage);
     CHECK_EQ(ResizeQualityFor(0.5), ResizeQuality::Low);

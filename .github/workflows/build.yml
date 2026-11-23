@@ -125,8 +125,16 @@ jobs:
           path: artifacts/build.binlog
 
   test:
-    name: Core tests (x64)
-    runs-on: windows-latest
+    name: Core tests (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: x64
+            runner: windows-latest
+          - platform: ARM64
+            runner: windows-11-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -136,12 +144,12 @@ jobs:
         run: >-
           msbuild tests\Eikon.Core.Tests\Eikon.Core.Tests.vcxproj /m /v:minimal "/clp:ErrorsOnly;Summary"
           /p:Configuration=Release
-          /p:Platform=x64
+          /p:Platform=${{ matrix.platform }}
 
       - name: Run Eikon.Core.Tests
         shell: pwsh
         run: |
-          & "tests\Eikon.Core.Tests\bin\x64\Release\Eikon.Core.Tests.exe"
+          & "tests\Eikon.Core.Tests\bin\${{ matrix.platform }}\Release\Eikon.Core.Tests.exe"
           if ($LASTEXITCODE -ne 0) {
             Write-Error "Eikon.Core.Tests failed ($LASTEXITCODE failed checks)"
             exit 1

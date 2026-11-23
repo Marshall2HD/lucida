@@ -4,10 +4,20 @@
 #include "Core/Objects/Factory.h"
 
 #include <algorithm>
+#include <atomic>
 
 namespace Eikon::Core
 {
-    Document::Document(Bitmap image) : m_image(std::make_shared<Bitmap const>(std::move(image)))
+    namespace
+    {
+        std::uint64_t NextImageGeneration() noexcept
+        {
+            static std::atomic<std::uint64_t> generation{ 0 };
+            return generation.fetch_add(1, std::memory_order_relaxed) + 1;
+        }
+    }
+
+    Document::Document(Bitmap image) : m_image(std::make_shared<Bitmap const>(std::move(image))), m_imageGeneration(NextImageGeneration())
     {
         m_crop = Source();
         // Undo.State.backdropConfig: the backdrop undoes with the image.
@@ -27,6 +37,7 @@ namespace Eikon::Core
     void Document::ReplaceImage(Bitmap image, Point cropOffset)
     {
         m_image = std::make_shared<Bitmap const>(std::move(image));
+        m_imageGeneration = NextImageGeneration();
         m_crop = m_crop.Offset(cropOffset.x, cropOffset.y).Intersection(Source());
         if (m_crop.IsEmpty())
         {

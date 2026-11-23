@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "Platform/ImageCodec.h"
 
+#include "Core/Bitmap.h"
+
 #include <bit>
 #include <cstring>
 #include <limits>
@@ -502,7 +504,8 @@ namespace Eikon::ImageCodec
     {
         try
         {
-            if (width == 0 || height == 0 || pixels.size() < static_cast<std::size_t>(width) * height * 4)
+            auto const byteCount = Core::TryBitmapBytes(static_cast<int>(width), static_cast<int>(height));
+            if (!byteCount || pixels.size() < *byteCount)
             {
                 return {};
             }
@@ -531,7 +534,8 @@ namespace Eikon::ImageCodec
         try
         {
             auto factory = CreateFactory();
-            if (!factory || width == 0 || height == 0)
+            auto const byteCount = Core::TryBitmapBytes(static_cast<int>(width), static_cast<int>(height));
+            if (!factory || !path || !byteCount)
             {
                 return {};
             }
@@ -560,7 +564,7 @@ namespace Eikon::ImageCodec
             {
                 return {};
             }
-            std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width) * height * 4);
+            std::vector<std::uint8_t> pixels(*byteCount);
             if (FAILED(output->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data())))
             {
                 return {};

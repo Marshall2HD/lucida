@@ -44,7 +44,7 @@ namespace Eikon::Core
 
     ResizeCheck CheckResize(std::int64_t width, std::int64_t height, std::int64_t currentWidth, std::int64_t currentHeight) noexcept
     {
-        constexpr std::int64_t kMaxSide = 22000;
+        constexpr std::int64_t kMaxSide = 16384;
         if (currentWidth <= 0 || currentHeight <= 0)
         {
             return ResizeCheck::NoImage;

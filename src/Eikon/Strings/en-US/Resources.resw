@@ -1654,4 +1654,40 @@ to add them to the library?</value>
   <data name="Library_Finishing" xml:space="preserve">
     <value>Finishing indexing</value>
   </data>
+  <data name="Output_ComposeFailedTitle" xml:space="preserve">
+    <value>Couldn’t create image</value>
+  </data>
+  <data name="Output_ComposeFailedMessage" xml:space="preserve">
+    <value>Lucida could not render this image. Please try a smaller capture.</value>
+  </data>
+  <data name="Capture_WindowFailedTitle" xml:space="preserve">
+    <value>Couldn’t capture window</value>
+  </data>
+  <data name="Capture_WindowFailedMessage" xml:space="preserve">
+    <value>Lucida could not capture the selected window.</value>
+  </data>
+  <data name="Prefs_NavAbout.Content" xml:space="preserve">
+    <value>About</value>
+  </data>
+  <data name="Prefs_AboutHeader.Text" xml:space="preserve">
+    <value>About Lucida</value>
+  </data>
+  <data name="Prefs_AboutVersion.Header" xml:space="preserve">
+    <value>Version</value>
+  </data>
+  <data name="Prefs_AboutVersionValue" xml:space="preserve">
+    <value>Lucida {0}</value>
+  </data>
+  <data name="Prefs_AboutNotices.Header" xml:space="preserve">
+    <value>Third-party notices</value>
+  </data>
+  <data name="Prefs_AboutViewNotices.Content" xml:space="preserve">
+    <value>View third-party notices</value>
+  </data>
+  <data name="Prefs_AboutNoticesUnavailable" xml:space="preserve">
+    <value>Third-party notices are unavailable in this installation.</value>
+  </data>
+  <data name="Prefs_ScrollingMaxLimit.Text" xml:space="preserve">
+    <value>Maximum 16,384 px</value>
+  </data>
 </root>

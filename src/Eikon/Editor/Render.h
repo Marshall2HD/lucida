@@ -19,6 +19,10 @@ namespace Eikon::Editor::Render
         double dpr = 1.0;           // the image's backing scale
         double rasterScale = 1.0;   // canvas device pixels per DIP
         Core::Point origin;         // canvas position (DIPs) of image pixel (0, 0)
+        // Image-pixel coordinate represented by image's (0,0). Full screenshots use
+        // {0,0}; export tiles use their uploaded source rectangle's origin.
+        Core::Point sourceOrigin{};
+        std::uint64_t imageGeneration = 0; // Document::ImageGeneration(), never a bitmap address
         // The screenshot as drawn (96 DPI, one DIP per pixel): the magnifier lens and the highlighter's
         // blend modes read it.
         winrt::Microsoft::Graphics::Canvas::CanvasBitmap image{ nullptr };

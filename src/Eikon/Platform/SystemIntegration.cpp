@@ -6,7 +6,6 @@
 #include <winrt/Microsoft.Windows.AppNotifications.h>
 
 #pragma comment(lib, "Winmm.lib")
-#pragma comment(lib, "shell32.lib")
 
 namespace Eikon::SystemIntegration
 {
@@ -106,23 +105,40 @@ namespace Eikon::SystemIntegration
         }
     }
 
-    void OpenUri(wchar_t const* uri)
+    winrt::fire_and_forget OpenUri(wchar_t const* uri)
     {
         if (!uri || !*uri)
         {
-            return;
+            co_return;
         }
         try
         {
-            auto operation = winrt::Windows::System::Launcher::LaunchUriAsync(winrt::Windows::Foundation::Uri{ uri });
-            (void)operation; // fire and forget
-            return;
+            bool const launched = co_await winrt::Windows::System::Launcher::LaunchUriAsync(winrt::Windows::Foundation::Uri{ uri });
+            if (!launched)
+            {
+                OutputDebugStringW(L"Eikon: Windows Launcher declined URI\n");
+            }
         }
         catch (...)
         {
+            OutputDebugStringW(L"Eikon: Windows Launcher failed to open URI\n");
         }
-        // Fallback (e.g. no package identity / not on a UI thread).
-        ShellExecuteW(nullptr, L"open", uri, nullptr, nullptr, SW_SHOWNORMAL);
+    }
+
+    winrt::fire_and_forget OpenFile(std::wstring const& path)
+    {
+        try
+        {
+            auto const file = co_await winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(path);
+            if (!co_await winrt::Windows::System::Launcher::LaunchFileAsync(file))
+            {
+                OutputDebugStringW(L"Eikon: Windows Launcher declined file\n");
+            }
+        }
+        catch (...)
+        {
+            OutputDebugStringW(L"Eikon: Windows Launcher failed to open file\n");
+        }
     }
 
     winrt::hstring AppVersion()

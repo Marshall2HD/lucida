@@ -24,5 +24,8 @@ namespace Eikon::ScrollCapture
     // calling its callback.
     void StartManual(Done done);
 
+    // Stops either session without calling its completion callback. Safe during shutdown.
+    void Cancel() noexcept;
+
     bool IsRunning() noexcept;
 }

@@ -102,7 +102,7 @@ namespace Eikon::Core
     X(ActiveAppVersion, L"activeAppVersion", 0)                      \
     X(LibLimit, L"libLimit", 10000)                                  \
     X(LocalEventCounter, L"localEventCounter", 0)                    \
-    X(ScrollingMax, L"scrollingMax", 20000)                          \
+    X(ScrollingMax, L"scrollingMax", 16384)                          \
     X(ScrollingSpeed, L"scrollingSpeed", 2)                          \
     X(ShowDockIcon, L"showDockIcon", 1)                              \
     X(ShowIntro, L"showIntro", 1)                                    \
@@ -126,7 +126,7 @@ namespace Eikon::Core
     X(DefaultFolder, L"defaultFolder", L"")                                          \
     X(DefaultTool, L"defaultTool", L"")                                              \
     X(FileNameTemplate, L"fileNameTemplate", L"SCR-%Y%m%d-%t")                       \
-    X(LibAction, L"libAction", L"eikon")                                             \
+    X(LibAction, L"libAction", L"lucida")                                             \
     X(LibLayout, L"libLayout", L"medium")                                            \
     X(LibPopoveerSize, L"libPopoveerSize", L"small")                                 \
     X(NotificationType, L"notificationType", L"custom")                              \

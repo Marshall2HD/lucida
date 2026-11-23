@@ -23,7 +23,6 @@
 #include "PreviewWindow.h"
 #include "Platform/ScreenCapture.h"
 #include "Platform/ScrollCapture.h"
-#include "Platform/Secrets.h"
 #include "Platform/SystemIntegration.h"
 #include "SettingsWindow.xaml.h"
 #include "Strings.h"
@@ -154,6 +153,7 @@ namespace Eikon
             return;
         }
         m_shuttingDown = true;
+        ScrollCapture::Cancel();
         for (auto& timer : m_timers)
         {
             timer.Stop();
@@ -321,20 +321,15 @@ namespace Eikon
 
     namespace
     {
-        // For a window image: trimmed crops the (absent) shadow; wallpaper and solid fill what is
-        // transparent. Windows draws no shadow, so a window image has opaque edges and these modes
-        // leave it as it is (the wallpaper and colour fills paint only under transparent pixels).
-        Core::Bitmap ApplyShadowMode(Core::Bitmap image, int shadow, bool trimShadow)
+        // CaptureWindow supplies a synthetic transparent shadow.  Trimmed crops it, wallpaper and
+        // solid fill its transparent margin, and transparent leaves it untouched.
+        Core::Bitmap ApplyShadowMode(Core::Bitmap image, int shadow, bool)
         {
             switch (static_cast<Core::ShadowMode>(shadow))
             {
             case Core::ShadowMode::Trimmed:
-                return trimShadow ? Core::TrimShadow(std::move(image)) : image;
+                return Core::TrimShadow(std::move(image));
             case Core::ShadowMode::Wallpaper:
-                if (!Core::IsEdgeTransparent(image))
-                {
-                    return image;   // addWallpaper step 1, without looking up the wallpaper
-                }
                 return Core::AddWallpaper(std::move(image), ScreenCapture::PrimaryWallpaper());
             case Core::ShadowMode::Solid:
             {
@@ -382,7 +377,7 @@ namespace Eikon
         if (!image)
         {
             Log(L"Window grab failed, frontmost window: " + window->app + L" " + window->title);
-            GrabAnyWindow(shadow, actions);
+            Notify({ Strings::Get(L"Capture_WindowFailedTitle"), Strings::Get(L"Capture_WindowFailedMessage"), true, 5.0, true });
             return;
         }
         if (image->height < 40 * window->scale)
@@ -391,10 +386,8 @@ namespace Eikon
             return;
         }
         CaptureInfo info{ window->app, window->title, false };
-        if (shadow >= static_cast<int>(Core::ShadowMode::Wallpaper))
-        {
-            info.backdropApplied = Core::IsEdgeTransparent(*image);
-        }
+        info.backdropApplied = Core::IsEdgeTransparent(*image) &&
+                               (shadow == static_cast<int>(Core::ShadowMode::Wallpaper) || shadow == static_cast<int>(Core::ShadowMode::Solid));
         AfterCapture(ApplyShadowMode(std::move(*image), shadow, true), L"window", actions, std::move(info));
     }
 
@@ -414,16 +407,14 @@ namespace Eikon
             if (!image)
             {
                 Log(L"Any Window capture failed");
+                Notify({ Strings::Get(L"Capture_WindowFailedTitle"), Strings::Get(L"Capture_WindowFailedMessage"), true, 5.0, true });
                 return;
             }
             m_rememberedArea = window->bounds;
             CaptureInfo info{ window->app, window->title, false };
-            if (shadow >= static_cast<int>(Core::ShadowMode::Wallpaper))
-            {
-                info.backdropApplied = Core::IsEdgeTransparent(*image);
-            }
-            // `-o` already removed the shadow for "trimmed": nothing to trim here.
-            AfterCapture(ApplyShadowMode(std::move(*image), shadow, false), L"interactive-window", actions, std::move(info));
+            info.backdropApplied = Core::IsEdgeTransparent(*image) &&
+                                   (shadow == static_cast<int>(Core::ShadowMode::Wallpaper) || shadow == static_cast<int>(Core::ShadowMode::Solid));
+            AfterCapture(ApplyShadowMode(std::move(*image), shadow, true), L"interactive-window", actions, std::move(info));
         });
     }
 
@@ -785,6 +776,11 @@ namespace Eikon
             Notifier::Show({ Strings::Get(L"Output_SaveFailedTitle"), Strings::Get(L"Output_SaveFailedMessage"), true, 5.0, true });
         }
 
+        void NotifyComposeFailed()
+        {
+            Notifier::Show({ Strings::Get(L"Output_ComposeFailedTitle"), Strings::Get(L"Output_ComposeFailedMessage"), true, 5.0, true });
+        }
+
         // "Click to open in File Explorer" with the folder path; the button shows the file.
         void NotifySaved(std::filesystem::path const& file, std::wstring const& button)
         {
@@ -863,8 +859,13 @@ namespace Eikon
         }
         // Clear the clipboard first so a fast paste doesn't get stale data.
         Exporter::ClearClipboard(MessageWindowHandle());
-        auto const image = Editor::Compose(*m_document);
-        bool const ok = image && Exporter::CopyToClipboard(*image, MessageWindowHandle());
+        auto const composed = Editor::Compose(*m_document);
+        if (!composed)
+        {
+            NotifyComposeFailed();
+            return false;
+        }
+        bool const ok = Exporter::CopyToClipboard(*composed, MessageWindowHandle());
         if (!ok)
         {
             Log(L"copying the image failed");
@@ -880,7 +881,13 @@ namespace Eikon
             return;
         }
         auto& settings = Settings::Current();
-        auto const image = Exporter::DownscaleForSave(Editor::Compose(*m_document), settings.DownscaleOnSave());
+        auto const composed = Editor::Compose(*m_document);
+        if (!composed)
+        {
+            NotifyComposeFailed();
+            return;
+        }
+        auto const image = Exporter::DownscaleForSave(composed, settings.DownscaleOnSave());
         if (!image || image->IsEmpty())
         {
             Log(L"NOTE: No image to save");
@@ -915,7 +922,13 @@ namespace Eikon
             Log(L"NOTE: No image to save");
             return;
         }
-        auto const image = Exporter::DownscaleForSave(Editor::Compose(*m_document), Settings::Current().DownscaleOnSave());
+        auto const composed = Editor::Compose(*m_document);
+        if (!composed)
+        {
+            NotifyComposeFailed();
+            return;
+        }
+        auto const image = Exporter::DownscaleForSave(composed, Settings::Current().DownscaleOnSave());
         if (!image || image->IsEmpty())
         {
             return;
@@ -939,7 +952,12 @@ namespace Eikon
             return;
         }
         auto const image = Editor::Compose(*m_document);
-        if (image && !image->IsEmpty())
+        if (!image)
+        {
+            NotifyComposeFailed();
+            return;
+        }
+        if (!image->IsEmpty())
         {
             Exporter::Print(EditorHandle(), *image, Settings::Current().PrintOrientation());
         }
@@ -952,7 +970,13 @@ namespace Eikon
             return std::nullopt;
         }
         auto& settings = Settings::Current();
-        auto const image = Exporter::DownscaleForSave(Editor::Compose(*m_document), settings.DownscaleOnSave());
+        auto const composed = Editor::Compose(*m_document);
+        if (!composed)
+        {
+            NotifyComposeFailed();
+            return std::nullopt;
+        }
+        auto const image = Exporter::DownscaleForSave(composed, settings.DownscaleOnSave());
         if (!image || image->IsEmpty())
         {
             return std::nullopt;
@@ -1284,8 +1308,14 @@ namespace Eikon
             Notify(std::move(notification));
             return;
         }
+        auto const composed = Editor::Compose(*document);
+        if (!composed)
+        {
+            NotifyComposeFailed();
+            return;
+        }
         BeginBusy();
-        Uploader::Upload(Editor::Compose(*document), document->metadata.screenshotDate, [this](Uploader::Result const& result) {
+        Uploader::Upload(composed, document->metadata.screenshotDate, [this](Uploader::Result const& result) {
             EndBusy(result.ok);
             if (!result.ok)
             {
@@ -1306,7 +1336,7 @@ namespace Eikon
             notification.title = Strings::Get(L"Upload_UrlCopiedTitle");
             notification.message = result.url.size() > 100 ? result.url.substr(0, 100) + L"..." : result.url;
             notification.buttonTitle = Strings::Get(L"Upload_Open");
-            notification.action = [url = result.url] { ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL); };
+            notification.action = [url = result.url] { SystemIntegration::OpenUri(url.c_str()); };
             Notify(std::move(notification));
         });
     }
@@ -1463,11 +1493,6 @@ namespace Eikon
         return true;
     }
 
-    void AppController::OpenPastUploads()
-    {
-        Notify({ Strings::Get(L"Url_UploadsFailedTitle"), Strings::Get(L"Url_UploadsFailedMessage"), true, kUrlMessageSeconds, false });
-    }
-
     // ---- URL scheme ----
 
     void AppController::UrlWarning(std::wstring const& title, std::wstring const& message)
@@ -1483,50 +1508,12 @@ namespace Eikon
             Log(L"not an Eikon URL: " + std::wstring{ url });
             return;
         }
-        auto& settings = Settings::Current();
         std::wstring const& command = parsed->command;
         Log(L"URL command: " + command);
 
-        // Routes that need no permission, in the router's order.
-        // Reserved commands: accepted and ignored.
-        if (parsed->host == L"flop")
+        // The only intentionally inert/read-only routes are safe before confirmation.
+        if (parsed->host == L"flop" || command == L"settings/license")
         {
-            return;
-        }
-        if (command == L"settings/license")
-        {
-            return;
-        }
-        if (command == L"settings/scrolling/manual/enable")
-        {
-            settings.ScrollingManualEnabled(true); // the menu is rebuilt each time it opens
-            return;
-        }
-        if (command == L"settings/scrolling/manual/disable")
-        {
-            settings.ScrollingManualEnabled(false);
-            return;
-        }
-        // The parser drops trailing slashes, so the bare prefix arrives without its "/".
-        if (StartsWith(command, L"settings/areacustomgrabber/") || command == L"settings/areacustomgrabber")
-        {
-            settings.AreaCustomGrabber(command.find(L"/enable") != std::wstring::npos);
-            return;
-        }
-        // Prefix matches.
-        if (StartsWith(command, L"settings/capturecursor/auto"))
-        {
-            settings.CaptureCursor(L"auto");
-            return;
-        }
-        if (StartsWith(command, L"settings/capturecursor/include"))
-        {
-            settings.CaptureCursor(L"include");
-            return;
-        }
-        if (StartsWith(command, L"settings/capturecursor/exclude"))
-        {
-            settings.CaptureCursor(L"exclude");
             return;
         }
         if (command.empty() || command == L"show")
@@ -1535,24 +1522,24 @@ namespace Eikon
             return;
         }
 
-        // Everything else needs allowDeeplinks.
-        auto& secrets = Secrets::Current();
-        if (!secrets.AllowDeeplinks())
+        // Consent is deliberately per invocation.  A URL can capture, load, or mutate settings,
+        // so persisted consent from an older install must never make a later invocation silent.
+        std::wstring const title = Strings::Get(L"Url_DeepLinksTitle");
+        std::wstring const text = Strings::Format(L"Url_DeepLinksMessage", parsed->scheme, command);
+        if (MessageBoxW(nullptr, text.c_str(), title.c_str(), MB_OKCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST) != IDOK)
         {
-            std::wstring const title = Strings::Get(L"Url_DeepLinksTitle");
-            std::wstring const text = Strings::Format(L"Url_DeepLinksMessage", parsed->scheme, command);
-            int const answer = MessageBoxW(nullptr, text.c_str(), title.c_str(), MB_OKCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST);
-            secrets.AllowDeeplinks(answer == IDOK); // stores the answer either way
-            if (answer != IDOK)
-            {
-                return;
-            }
-            // The confirm is still fading out on screen when MessageBoxW returns; a capture started at
-            // once froze it into the screenshot, so the command waits for it to go.
-            After(std::chrono::milliseconds(300), [this, command = *parsed] { RunGatedUrl(command); });
             return;
         }
-        RunGatedUrl(*parsed);
+        bool const startsCapture = StartsWith(command, L"grab/") || command == L"ocr";
+        if (startsCapture)
+        {
+            // Let the confirmation disappear before a selector freezes the desktop.
+            After(std::chrono::milliseconds(300), [this, command = *parsed] { RunGatedUrl(command); });
+        }
+        else
+        {
+            RunGatedUrl(*parsed);
+        }
     }
 
     void AppController::RunGatedUrl(Core::UrlCommand const& url)
@@ -1569,7 +1556,13 @@ namespace Eikon
         }
         CaptureActions const actions = then.actions;
 
+        if (command == L"settings/scrolling/manual/enable") { settings.ScrollingManualEnabled(true); return; }
+        if (command == L"settings/scrolling/manual/disable") { settings.ScrollingManualEnabled(false); return; }
+        if (command == L"settings/capturecursor/auto") { settings.CaptureCursor(L"auto"); return; }
+        if (command == L"settings/capturecursor/include") { settings.CaptureCursor(L"include"); return; }
+        if (command == L"settings/capturecursor/exclude") { settings.CaptureCursor(L"exclude"); return; }
         if (command == L"grab/fullscreen") { GrabScreenshot(L"fullscreen", L"url", actions); return; }
+
         if (command == L"grab/area") { GrabScreenshot(L"interactive", L"url", actions); return; }
         if (command == L"grab/repeat") { GrabScreenshot(L"interactive-repeat", L"url", actions); return; }
         if (command == L"grab/window") { GrabScreenshot(L"interactive-window", L"url", actions); return; }
@@ -1586,7 +1579,6 @@ namespace Eikon
             After(std::chrono::milliseconds(100), [this] { OpenFile(L"url"); });
             return;
         }
-        if (command == L"uploads") { OpenPastUploads(); return; }
         if (command == L"settings") { OpenSettings(); return; }
         if (command == L"lib") { OpenLibrary(std::nullopt); return; }
         if (command == L"lib/search")

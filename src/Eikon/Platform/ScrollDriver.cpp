@@ -142,7 +142,11 @@ namespace Eikon::ScrollDriver
     InputMonitor::InputMonitor(Trigger trigger)
         : m_trigger(trigger)
     {
-        HANDLE const ready = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        auto ready = std::shared_ptr<void>{ CreateEventW(nullptr, TRUE, FALSE, nullptr), [](void* handle) { CloseHandle(static_cast<HANDLE>(handle)); } };
+        if (!ready)
+        {
+            return;
+        }
         m_thread = std::thread([this, ready] {
             t_monitor = this;
             MSG message{};
@@ -151,10 +155,18 @@ namespace Eikon::ScrollDriver
             HINSTANCE const instance = GetModuleHandleW(nullptr);
             HHOOK const keyboard = SetWindowsHookExW(WH_KEYBOARD_LL, &KeyboardProc, instance, 0);
             HHOOK const mouse = m_trigger == Trigger::AnyKeyOrClick ? SetWindowsHookExW(WH_MOUSE_LL, &MouseProc, instance, 0) : nullptr;
-            SetEvent(ready);
-            while (GetMessageW(&message, nullptr, 0, 0) > 0)
+            m_started = keyboard != nullptr;
+            SetEvent(static_cast<HANDLE>(ready.get()));
+            if (keyboard)
             {
-                DispatchMessageW(&message);
+                while (!m_stop.load(std::memory_order_acquire) && GetMessageW(&message, nullptr, 0, 0) > 0)
+                {
+                    if (message.message == WM_QUIT)
+                    {
+                        break;
+                    }
+                    DispatchMessageW(&message);
+                }
             }
             if (keyboard)
             {
@@ -164,19 +176,32 @@ namespace Eikon::ScrollDriver
             {
                 UnhookWindowsHookEx(mouse);
             }
+            t_monitor = nullptr;
         });
-        if (ready)
+        DWORD const wait = WaitForSingleObject(static_cast<HANDLE>(ready.get()), 2000);
+        if (wait != WAIT_OBJECT_0)
         {
-            WaitForSingleObject(ready, 2000);
-            CloseHandle(ready);
+            // Startup failed or was delayed. Ask the queue to leave; the thread has created it before
+            // publishing m_threadId, so do not post until that publication is visible.
+            m_stop = true;
+            DWORD const id = m_threadId;
+            if (id)
+            {
+                PostThreadMessageW(id, WM_QUIT, 0, 0);
+            }
         }
     }
 
     InputMonitor::~InputMonitor()
     {
+        m_stop = true;
         if (m_thread.joinable())
         {
-            PostThreadMessageW(m_threadId, WM_QUIT, 0, 0);
+            DWORD const id = m_threadId;
+            if (m_started.load(std::memory_order_acquire) && id)
+            {
+                PostThreadMessageW(id, WM_QUIT, 0, 0);
+            }
             m_thread.join();
         }
     }

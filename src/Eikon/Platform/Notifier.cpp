@@ -11,6 +11,9 @@
 #include <winrt/Microsoft.Windows.AppNotifications.Builder.h>
 
 #include <chrono>
+#include <atomic>
+#include <map>
+#include <mutex>
 #include <cmath>
 
 namespace Eikon::Notifier
@@ -38,7 +41,9 @@ namespace Eikon::Notifier
         constexpr UINT_PTR kTimerAnimation = 2;
 
         bool g_registered = false;
-        std::function<void()> g_toastAction;
+        std::atomic<std::uint64_t> g_nextToastAction{ 1 };
+        std::mutex g_toastActionsLock;
+        std::map<std::uint64_t, std::function<void()>> g_toastActions;
         winrt::Microsoft::UI::Dispatching::DispatcherQueue g_dispatcher{ nullptr };
         HMONITOR g_lastActiveMonitor = nullptr;
         Clock::time_point g_lastActiveTime{};
@@ -630,10 +635,29 @@ namespace Eikon::Notifier
             }
         }
 
+        std::optional<std::uint64_t> ToastActionId(winrt::hstring const& arguments)
+        {
+            std::wstring_view const text{ arguments };
+            std::size_t const start = text.find(L"id=");
+            if (start == std::wstring_view::npos)
+            {
+                return std::nullopt;
+            }
+            std::uint64_t id = 0;
+            for (std::size_t i = start + 3; i < text.size() && text[i] != L'&'; ++i)
+            {
+                if (text[i] < L'0' || text[i] > L'9') return std::nullopt;
+                id = id * 10 + static_cast<std::uint64_t>(text[i] - L'0');
+            }
+            return id ? std::optional<std::uint64_t>{ id } : std::nullopt;
+        }
+
         bool ShowToast(Notification& notification)
         {
             try
             {
+                std::uint64_t const id = g_nextToastAction.fetch_add(1);
+                std::wstring const idText = std::to_wstring(id);
                 AppNotificationBuilder builder;
                 builder.AddText(notification.title);
                 if (!notification.message.empty())
@@ -642,12 +666,17 @@ namespace Eikon::Notifier
                 }
                 if (!notification.buttonTitle.empty())
                 {
-                    builder.AddButton(AppNotificationButton(notification.buttonTitle).AddArgument(L"action", L"button"));
+                    builder.AddButton(AppNotificationButton(notification.buttonTitle).AddArgument(L"action", L"button").AddArgument(L"id", idText));
                 }
                 builder.AddArgument(L"action", L"body");
+                builder.AddArgument(L"id", idText);
                 auto toast = builder.BuildNotification();
                 toast.Expiration(winrt::clock::now() + std::chrono::milliseconds(static_cast<std::int64_t>((std::max)(notification.seconds, 1.0) * 1000)));
-                g_toastAction = notification.action;
+                if (notification.action)
+                {
+                    std::lock_guard guard{ g_toastActionsLock };
+                    g_toastActions.insert_or_assign(id, std::move(notification.action));
+                }
                 AppNotificationManager::Default().Show(toast);
                 return true;
             }
@@ -665,11 +694,21 @@ namespace Eikon::Notifier
         {
             g_dispatcher = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
             // Must be subscribed before Register() so clicks reach this process.
-            AppNotificationManager::Default().NotificationInvoked([](auto&&, AppNotificationActivatedEventArgs const&) {
-                if (g_dispatcher)
+            AppNotificationManager::Default().NotificationInvoked([](auto&&, AppNotificationActivatedEventArgs const& args) {
+                auto const id = ToastActionId(args.Argument());
+                if (g_dispatcher && id)
                 {
-                    g_dispatcher.TryEnqueue([] {
-                        if (auto action = g_toastAction)
+                    g_dispatcher.TryEnqueue([id = *id] {
+                        std::function<void()> action;
+                        {
+                            std::lock_guard guard{ g_toastActionsLock };
+                            if (auto const it = g_toastActions.find(id); it != g_toastActions.end())
+                            {
+                                action = std::move(it->second);
+                                g_toastActions.erase(it);
+                            }
+                        }
+                        if (action)
                         {
                             try
                             {
@@ -694,6 +733,10 @@ namespace Eikon::Notifier
     void Shutdown()
     {
         Window::Current().Destroy();
+        {
+            std::lock_guard guard{ g_toastActionsLock };
+            g_toastActions.clear();
+        }
         if (!g_registered)
         {
             return;

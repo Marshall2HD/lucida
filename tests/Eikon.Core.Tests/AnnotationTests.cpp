@@ -519,6 +519,59 @@ TEST(Conceal_TextModeOnlyTouchesWordBoxes)
     CHECK((Conceal::ClampArea({ 50, 50, 10, 10 }, 40, 20) == Rect{ 39, 19, 1, 1 }));
 }
 
+TEST(ObjConceal_PendingTextModesFailClosedThenSettle)
+{
+    Bitmap const source = Bitmap::Create(20, 10);
+    for (std::wstring const& mode : { std::wstring{ L"pixelate-text" }, std::wstring{ L"erase-text" } })
+    {
+        ObjConceal conceal;
+        conceal.rect = { 0, 0, 20, 10 };
+        conceal.fillMode = mode;
+        auto const pending = conceal.Concealed(source, 1);
+        CHECK(pending != nullptr);
+        if (pending)
+        {
+            CHECK_EQ(PixelAt(*pending, 0, 0).a, std::uint8_t{ 255 });
+        }
+        conceal.SetTextBoxes(conceal.Area(), {});
+        auto const settled = conceal.Concealed(source, 1);
+        CHECK(settled != nullptr);
+        if (settled)
+        {
+            CHECK_EQ(PixelAt(*settled, 0, 0).a, std::uint8_t{ 0 });
+        }
+        conceal.SetTextBoxes(conceal.Area(), { Rect{ 2, 2, 3, 3 } });
+        auto const words = conceal.Concealed(source, 1);
+        CHECK(words != nullptr);
+        if (words)
+        {
+            CHECK_EQ(PixelAt(*words, 3, 3).a, std::uint8_t{ 255 });
+        }
+    }
+}
+
+TEST(Annotation_LoadRejectsMalformedNumbersAndInvalidConcealMode)
+{
+    auto const badCounter = JsonValue::Parse(L"{\"rect\":{\"x1\":0,\"y1\":0,\"width\":1,\"height\":1},\"size\":1,\"color\":\"#000000\",\"style\":1e300,\"count\":1}");
+    CHECK(badCounter.has_value());
+    ObjCounter counter;
+    CHECK(!counter.Load(*badCounter));
+    auto const badRect = JsonValue::Parse(L"{\"rect\":{\"x1\":1e300,\"y1\":0,\"width\":1,\"height\":1},\"size\":1,\"color\":\"#000000\",\"style\":1,\"count\":1}");
+    CHECK(badRect.has_value());
+    CHECK(!counter.Load(*badRect));
+
+    ObjConceal conceal;
+    conceal.fillMode = L"erase";
+    auto const invalidMode = JsonValue::Parse(L"{\"rect\":{\"x1\":0,\"y1\":0,\"width\":1,\"height\":1},\"size\":1,\"fillMode\":\"not-a-mode\"}");
+    CHECK(invalidMode.has_value());
+    CHECK(!conceal.Load(*invalidMode));
+    CHECK_EQ(conceal.fillMode, std::wstring{ L"erase" });
+    EikonTests::ResetSettings();
+    conceal.SetProperty(L"concealType", L"not-a-mode");
+    CHECK_EQ(conceal.fillMode, std::wstring{ L"erase" });
+    CHECK_EQ(Settings::Current().ReadString(L"Eikon.ObjConceal: fillMode", L"missing"), std::wstring{ L"missing" });
+}
+
 TEST(ObjConceal_DumpHasNoColour)
 {
     ObjConceal conceal;

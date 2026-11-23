@@ -87,6 +87,7 @@ namespace Eikon::Core
         double zoom = 1.0;
         Rect image;                                   // Framer source (0, 0, W, H) in pixels
         Bitmap const* bitmap = nullptr;               // the screenshot, BGRA premultiplied
+        std::uint64_t imageGeneration = 0;             // Document::ImageGeneration(), for bitmap-derived caches
         std::function<std::int32_t()> nextCounter;    // ObjectHandlers.counterCount += 1 (Document::NextCounter)
         // ObjImage's G key / "saveGIF" action: the two-frame GIF export (output area).
         std::function<void(ProtoObject const&)> saveGif;

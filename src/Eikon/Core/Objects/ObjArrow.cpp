@@ -264,22 +264,34 @@ namespace Eikon::Core
     bool ObjArrow::Load(JsonValue const& json)
     {
         auto t = GetNumber(json, L"type"), s = GetNumber(json, L"style"), a = GetNumber(json, L"midpa"), d = GetNumber(json, L"midpd");
-        if (!t || !s || !a || !d || !LoadBase(json))
+        if (!t || !s || !a || !d)
         {
             return false;
         }
-        type = static_cast<std::int32_t>(*t);
-        style = static_cast<std::int32_t>(*s);
+        auto const loadedType = Int32FromJsonNumber(*t);
+        auto const loadedStyle = Int32FromJsonNumber(*s);
+        std::optional<std::uint64_t> loadedSeed;
+        if (auto const* seedValue = json.Find(L"seed"))
+        {
+            if (!seedValue->IsNumber())
+            {
+                return false;
+            }
+            loadedSeed = UInt64FromJsonNumber(seedValue->AsNumber());
+            if (!loadedSeed)
+            {
+                return false;
+            }
+        }
+        if (!loadedType || !loadedStyle || !LoadBase(json))
+        {
+            return false;
+        }
+        type = *loadedType;
+        style = *loadedStyle;
         midpa = *a;
         midpd = *d;
-        if (auto sd = GetNumber(json, L"seed"))
-        {
-            seed = static_cast<std::uint64_t>(*sd);
-        }
-        else
-        {
-            seed.reset();
-        }
+        seed = loadedSeed;
         state = std::wstring{ ObjectState::Unselected };
         return true;
     }

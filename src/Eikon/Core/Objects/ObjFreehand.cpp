@@ -50,13 +50,18 @@ namespace Eikon::Core
         auto res = GetNumber(json, L"resolution"), sm = GetNumber(json, L"smoothing"), cap = GetNumber(json, L"capStyle");
         auto corr = GetString(json, L"shapeCorrection"), hash = GetString(json, L"pointsHash");
         auto raw = GetRect(json, L"rawRect");
-        if (!res || !sm || !cap || !corr || !hash || !raw || !LoadBase(json))
+        if (!res || !sm || !cap || !corr || !hash || !raw)
+        {
+            return false;
+        }
+        auto const loadedCapStyle = Int32FromJsonNumber(*cap);
+        if (!loadedCapStyle || !LoadBase(json))
         {
             return false;
         }
         resolution = *res;
         smoothing = *sm;
-        capStyle = static_cast<std::int32_t>(*cap);
+        capStyle = *loadedCapStyle;
         shapeCorrection = *corr;
         rawRect = *raw;
         pointsHash = *hash;

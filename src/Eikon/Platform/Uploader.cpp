@@ -34,6 +34,8 @@ namespace Eikon::Uploader
         struct Config
         {
             S3::Settings settings;
+            SecureString accessKey;
+            SecureString secretKey;
             std::wstring prefix;
             std::wstring sharingMode;
             std::wstring publicUrl;
@@ -46,8 +48,8 @@ namespace Eikon::Uploader
             auto& settings = Core::Settings::Current();
             auto& secrets = Secrets::Current();
             Config config;
-            config.settings.accessKey = secrets.S3Access();
-            config.settings.secretKey = secrets.S3Secret();
+            config.accessKey = SecureString{ secrets.S3Access() };
+            config.secretKey = SecureString{ secrets.S3Secret() };
             config.settings.region = settings.UploadS3Region();
             config.settings.endpoint = settings.UploadS3Endpoint();
             config.settings.bucket = settings.UploadS3Bucket();
@@ -265,8 +267,12 @@ namespace Eikon::Uploader
         std::optional<std::wstring> Request(wchar_t const* verb, Config const& config, S3::Target const& target, std::string const& key,
                                             std::span<std::uint8_t const> body, std::string const& contentType, bool forDelete)
         {
-            std::string const access = S3::ToUtf8(config.settings.accessKey);
-            std::string const secret = S3::ToUtf8(config.settings.secretKey);
+            std::string access = S3::ToUtf8(config.accessKey.View());
+            std::string secret = S3::ToUtf8(config.secretKey.View());
+            auto wipeCredentials = wil::scope_exit([&] {
+                SecureZeroMemory(access.data(), access.size());
+                SecureZeroMemory(secret.data(), secret.size());
+            });
             std::string const uri = S3::CanonicalUri(target, key);
             std::string const payloadHash = S3::Sha256Hex(body);
             for (int attempt = 0; attempt < 2; ++attempt)
@@ -473,8 +479,13 @@ namespace Eikon::Uploader
                         }
                         else if (config.sharingMode == L"presign")
                         {
-                            std::string const url = S3::PresignedUrl(resolved, key, S3::ToUtf8(config.settings.accessKey),
-                                                                     S3::ToUtf8(config.settings.secretKey), config.expiration,
+                            std::string access = S3::ToUtf8(config.accessKey.View());
+                            std::string secret = S3::ToUtf8(config.secretKey.View());
+                            auto wipeCredentials = wil::scope_exit([&] {
+                                SecureZeroMemory(access.data(), access.size());
+                                SecureZeroMemory(secret.data(), secret.size());
+                            });
+                            std::string const url = S3::PresignedUrl(resolved, key, access, secret, config.expiration,
                                                                      Now() + g_clockSkew.load());
                             if (url.empty())
                             {
@@ -525,12 +536,12 @@ namespace Eikon::Uploader
     std::optional<MissingSetting> CheckSettings()
     {
         Config const config = ReadConfig();
-        if (config.settings.accessKey.empty())
+        if (config.accessKey.empty())
         {
             return MissingSetting{ Text(L"Upload_MissingAccessTitle", L"S3 Access Key is Missing"),
                                    Text(L"Upload_MissingAccessMessage", L"Enter S3 Access Key in the settings") };
         }
-        if (config.settings.secretKey.empty())
+        if (config.secretKey.empty())
         {
             return MissingSetting{ Text(L"Upload_MissingSecretTitle", L"S3 Secret Key is Missing"),
                                    Text(L"Upload_MissingSecretMessage", L"Enter S3 Secret Key in the settings") };

@@ -50,13 +50,34 @@ namespace winrt::Eikon::implementation
         }
     }
 
+    UploadSettingsPage::~UploadSettingsPage()
+    {
+        if (m_settingsToken) Settings::Current().Changed.Remove(m_settingsToken);
+    }
+
     void UploadSettingsPage::Page_Loaded(winrt::Windows::Foundation::IInspectable const&, winrt::RoutedEventArgs const&)
     {
         LoadValues();
+        if (!m_settingsToken)
+        {
+            m_settingsToken = Settings::Current().Changed.Add([weak = get_weak()](std::wstring_view key) {
+                if (auto self = weak.get()) self->OnSettingChanged(key);
+            });
+        }
     }
 
     void UploadSettingsPage::Page_Unloaded(winrt::Windows::Foundation::IInspectable const&, winrt::RoutedEventArgs const&)
     {
+        if (m_settingsToken)
+        {
+            Settings::Current().Changed.Remove(m_settingsToken);
+            m_settingsToken = 0;
+        }
+    }
+
+    void UploadSettingsPage::OnSettingChanged(std::wstring_view)
+    {
+        if (!m_loading) LoadValues();
     }
 
     void UploadSettingsPage::LoadValues()
@@ -80,6 +101,7 @@ namespace winrt::Eikon::implementation
             EndpointBox().Text(winrt::hstring{ endpoint });
             PrefixBox().Text(winrt::hstring{ settings.UploadS3Prefix() });
             SelectByTag(SharingCombo(), settings.UploadS3SharingMode(), 0);
+            PublicUrlBox().Text(winrt::hstring{ settings.UploadS3PublicUrl() });
             ExpirationSlider().Value(Prefs::ExpirationIndex(settings.UploadS3PresignExpiration()));
             ExpirationLabel().Text(winrt::hstring{ ::Eikon::Strings::Get(Prefs::Expirations()[Prefs::ExpirationIndex(settings.UploadS3PresignExpiration())].labelKey) });
             UpdateVisibility();

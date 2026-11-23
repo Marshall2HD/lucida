@@ -10,6 +10,7 @@
 #include "Platform/Candy.h"
 #include "Platform/Exporter.h"
 #include "Platform/ImageCodec.h"
+#include "Platform/SystemIntegration.h"
 #include "SettingsHelpers.h"
 #include "Strings.h"
 
@@ -254,6 +255,8 @@ namespace winrt::Eikon::implementation
 {
     LibraryWindow::~LibraryWindow()
     {
+        ++m_thumbnailGeneration;
+        m_thumbnailQueue.clear();
         if (m_indexToken)
         {
             LibraryIndex::Current().Changed.Remove(m_indexToken);
@@ -1034,9 +1037,14 @@ namespace winrt::Eikon::implementation
             auto const& frame = it->first < m_flow.frames.size() ? m_flow.frames[it->first] : LibLayout::Rect{};
             if (it->first >= m_view.size() || frame.y + frame.height < top || frame.y > bottom)
             {
+                auto const stalePath = it->second->path;
                 it->second->index = SIZE_MAX;
                 it->second->path.clear();
                 it->second->root.Visibility(winrt::Visibility::Collapsed);
+                // Pending (not yet decoding) work for an unrealized container is stale.
+                m_thumbnailQueue.erase(std::remove_if(m_thumbnailQueue.begin(), m_thumbnailQueue.end(), [&](ThumbnailRequest const& request) { return request.path == stalePath; }),
+                                       m_thumbnailQueue.end());
+                m_loading.erase(stalePath);
                 it = m_realized.erase(it);
             }
             else
@@ -1211,11 +1219,23 @@ namespace winrt::Eikon::implementation
         if (!m_loading.contains(view.path))
         {
             m_loading.insert(view.path);
-            LoadThumbnail(view.path, width, height);
+            m_thumbnailQueue.push_back({ view.path, width, height, m_thumbnailGeneration });
+            StartThumbnailWorkers();
         }
     }
 
-    winrt::fire_and_forget LibraryWindow::LoadThumbnail(std::wstring path, int width, int height)
+    void LibraryWindow::StartThumbnailWorkers()
+    {
+        while (m_thumbnailActive < 3 && !m_thumbnailQueue.empty())
+        {
+            auto request = std::move(m_thumbnailQueue.front());
+            m_thumbnailQueue.pop_front();
+            ++m_thumbnailActive;
+            LoadThumbnail(std::move(request.path), request.width, request.height, request.generation);
+        }
+    }
+
+    winrt::fire_and_forget LibraryWindow::LoadThumbnail(std::wstring path, int width, int height, std::uint64_t generation)
     {
         auto weak = get_weak();
         auto dispatcher = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
@@ -1227,7 +1247,16 @@ namespace winrt::Eikon::implementation
         {
             co_return;
         }
+        if (self->m_thumbnailActive) --self->m_thumbnailActive;
+        // Requests from an unrealized/replaced view are stale. Do not retain their
+        // decoded pixels or let their completion cancel a newer request for the path.
+        if (generation != self->m_thumbnailGeneration)
+        {
+            self->StartThumbnailWorkers();
+            co_return;
+        }
         self->m_loading.erase(path);
+        self->StartThumbnailWorkers();
         if (pixels.empty())
         {
             co_return;
@@ -1680,7 +1709,7 @@ namespace winrt::Eikon::implementation
         HideLibrary();
         auto& app = ::Eikon::AppController::Current();
         double const dpr = std::wcstod(Lib::Field(item->record, Lib::kDpr).c_str(), nullptr);
-        if (action == L"eikon")
+        if (action == L"lucida" || action == L"eikon")
         {
             if (!app.OpenImageFile(item->path, dpr))
             {
@@ -1689,7 +1718,7 @@ namespace winrt::Eikon::implementation
         }
         else if (action == L"open")
         {
-            ShellExecuteW(nullptr, L"open", item->path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            ::Eikon::SystemIntegration::OpenFile(item->path);
         }
         else if (action == L"finder")
         {

@@ -286,7 +286,9 @@ namespace Eikon::Editor
             }
             std::int64_t const id = object->id;
             Select(id);
-            if (m_host.recordUndo)
+            // Text's overlay commits (or removes an empty object) and creates the one
+            // authoritative undo snapshot. Do not record a second snapshot here.
+            if (object->ClassName() != L"ObjText" && m_host.recordUndo)
             {
                 m_host.recordUndo(L"");
             }
@@ -313,6 +315,18 @@ namespace Eikon::Editor
             m_host.objectsChanged();
         }
         return true;
+    }
+
+    void ObjectHandlers::CancelDrag()
+    {
+        if (auto* object = Find(m_dragId); object && m_dragPart == Core::ObjectState::Creating)
+        {
+            m_document->Remove(object->id);
+        }
+        m_dragId.reset();
+        m_dragPart.clear();
+        m_guides.clear();
+        if (m_host.objectsChanged) m_host.objectsChanged();
     }
 
     bool ObjectHandlers::CancelCreation()

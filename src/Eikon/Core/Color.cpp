@@ -8,6 +8,7 @@
 #include <charconv>
 #include <cmath>
 #include <numbers>
+#include <limits>
 #include <unordered_map>
 
 namespace Eikon::Core
@@ -348,13 +349,21 @@ namespace Eikon::Core
     Bitmap ScaleImage(Bitmap const& image, double factor)
     {
         Bitmap out;
-        if (image.IsEmpty())
+        if (image.IsEmpty() || !std::isfinite(factor) || factor <= 0)
         {
             return out;
         }
-        auto const w = static_cast<std::int32_t>(factor * image.width);
-        auto const h = static_cast<std::int32_t>(factor * image.height);
-        if (w <= 0 || h <= 0)
+        double const scaledWidth = factor * static_cast<double>(image.width);
+        double const scaledHeight = factor * static_cast<double>(image.height);
+        if (!std::isfinite(scaledWidth) || !std::isfinite(scaledHeight) || scaledWidth < 1.0 || scaledHeight < 1.0 ||
+            scaledWidth > static_cast<double>((std::numeric_limits<std::int32_t>::max)()) ||
+            scaledHeight > static_cast<double>((std::numeric_limits<std::int32_t>::max)()))
+        {
+            return out;
+        }
+        auto const w = static_cast<std::int32_t>(scaledWidth);
+        auto const h = static_cast<std::int32_t>(scaledHeight);
+        if (!TryBitmapBytes(w, h))
         {
             return out;
         }

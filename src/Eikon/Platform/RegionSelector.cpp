@@ -55,8 +55,12 @@ namespace Eikon::Platform
         // excluded from captures, so a screenshot can show what the user sees.
         bool OverlayVisibleInCaptures()
         {
+#ifndef NDEBUG
             std::error_code error;
             return std::filesystem::exists(Core::DataFolder() / L"capture-overlay-visible", error);
+#else
+            return false;
+#endif
         }
 
         D2D1_COLOR_F Rgba(float r, float g, float b, float a)
@@ -100,9 +104,11 @@ namespace Eikon::Platform
                     return false;
                 }
                 ScreenCapture::RegisterOverlay(m_window);
-                if (!OverlayVisibleInCaptures())
+                if (!OverlayVisibleInCaptures() && !SetWindowDisplayAffinity(m_window, WDA_EXCLUDEFROMCAPTURE))
                 {
-                    SetWindowDisplayAffinity(m_window, WDA_EXCLUDEFROMCAPTURE);
+                    Log(L"RegionSelector: SetWindowDisplayAffinity failed: " + std::to_wstring(GetLastError()));
+                    Destroy();
+                    return false;
                 }
                 if (!CreateDevice())
                 {
@@ -585,6 +591,38 @@ namespace Eikon::Platform
                 return true;
             }
 
+            void ResetGraphics()
+            {
+                if (m_context)
+                {
+                    m_context->SetTarget(nullptr);
+                }
+                m_frozenBitmap = nullptr;
+                m_brush = nullptr;
+                m_textFormat = nullptr;
+                m_visual = nullptr;
+                m_target = nullptr;
+                m_dcomp = nullptr;
+                m_swapChain = nullptr;
+                m_context = nullptr;
+                m_d2dFactory = nullptr;
+                m_dwrite = nullptr;
+                m_d3d = nullptr;
+                m_width = 0;
+                m_height = 0;
+            }
+
+            void RecoverGraphics()
+            {
+                Log(L"RegionSelector: recreating graphics device");
+                ResetGraphics();
+                if (CreateDevice() && m_monitor.handle)
+                {
+                    ResizeSwapChain(m_monitor.bounds.right - m_monitor.bounds.left, m_monitor.bounds.bottom - m_monitor.bounds.top);
+                    Invalidate();
+                }
+            }
+
             void ResizeSwapChain(int width, int height)
             {
                 if (!m_swapChain || width <= 0 || height <= 0 || (width == m_width && height == m_height))
@@ -596,6 +634,11 @@ namespace Eikon::Platform
                 {
                     m_width = width;
                     m_height = height;
+                }
+                else
+                {
+                    Log(L"RegionSelector: ResizeBuffers failed");
+                    RecoverGraphics();
                 }
             }
 
@@ -670,6 +713,7 @@ namespace Eikon::Platform
                 wil::com_ptr<IDXGISurface> surface;
                 if (FAILED(m_swapChain->GetBuffer(0, IID_PPV_ARGS(surface.put()))))
                 {
+                    RecoverGraphics();
                     return;
                 }
                 D2D1_BITMAP_PROPERTIES1 const properties = D2D1::BitmapProperties1(
@@ -678,6 +722,7 @@ namespace Eikon::Platform
                 wil::com_ptr<ID2D1Bitmap1> target;
                 if (FAILED(m_context->CreateBitmapFromDxgiSurface(surface.get(), &properties, target.put())))
                 {
+                    RecoverGraphics();
                     return;
                 }
                 m_context->SetTarget(target.get());
@@ -691,9 +736,15 @@ namespace Eikon::Platform
                 if (FAILED(hr))
                 {
                     Log(L"RegionSelector: EndDraw failed");
+                    RecoverGraphics();
                     return;
                 }
-                m_swapChain->Present(1, 0);
+                HRESULT const present = m_swapChain->Present(1, 0);
+                if (FAILED(present))
+                {
+                    Log(L"RegionSelector: Present failed");
+                    RecoverGraphics();
+                }
             }
 
             void Draw()
@@ -816,17 +867,7 @@ namespace Eikon::Platform
                 }
                 ScreenCapture::UnregisterOverlay(window);
                 m_window = nullptr;
-                m_frozenBitmap = nullptr;
-                m_brush = nullptr;
-                m_textFormat = nullptr;
-                m_visual = nullptr;
-                m_target = nullptr;
-                m_dcomp = nullptr;
-                m_swapChain = nullptr;
-                m_context = nullptr;
-                m_d2dFactory = nullptr;
-                m_dwrite = nullptr;
-                m_d3d = nullptr;
+                ResetGraphics();
                 SetWindowLongPtrW(window, GWLP_USERDATA, 0);
                 DestroyWindow(window);
             }

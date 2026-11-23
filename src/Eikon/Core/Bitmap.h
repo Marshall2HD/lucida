@@ -7,10 +7,47 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <optional>
 #include <vector>
 
 namespace Eikon::Core
 {
+    inline constexpr std::size_t kMaxImageBytes = 128ull * 1024 * 1024;
+    inline constexpr std::size_t kMaxInputBytes = 128ull * 1024 * 1024;
+
+    // BGRA8 byte count, bounded before every multiplication.
+    inline std::optional<std::size_t> TryBitmapBytes(int width, int height) noexcept
+    {
+        if (width <= 0 || height <= 0)
+        {
+            return std::nullopt;
+        }
+        std::uint64_t const w = static_cast<std::uint64_t>(width);
+        std::uint64_t const h = static_cast<std::uint64_t>(height);
+        std::uint64_t constexpr maxBytes = static_cast<std::uint64_t>(kMaxImageBytes);
+        if (w > maxBytes / 4 || h > maxBytes / (w * 4))
+        {
+            return std::nullopt;
+        }
+        std::uint64_t const bytes = w * h * 4;
+        if (bytes > static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)()))
+        {
+            return std::nullopt;
+        }
+        return static_cast<std::size_t>(bytes);
+    }
+
+    inline std::optional<std::uint32_t> TryPixelByteCount32(int width, int height) noexcept
+    {
+        auto const bytes = TryBitmapBytes(width, height);
+        if (!bytes || *bytes > static_cast<std::size_t>((std::numeric_limits<std::uint32_t>::max)()))
+        {
+            return std::nullopt;
+        }
+        return static_cast<std::uint32_t>(*bytes);
+    }
+
     struct Bitmap
     {
         // Pixel size. Rows are top-down and tightly packed: stride = width * 4.
@@ -24,7 +61,11 @@ namespace Eikon::Core
         std::vector<std::uint8_t> pixels;
 
         std::size_t Stride() const noexcept { return static_cast<std::size_t>(width) * 4; }
-        bool IsEmpty() const noexcept { return width <= 0 || height <= 0 || pixels.size() < Stride() * static_cast<std::size_t>(height); }
+        bool IsEmpty() const noexcept
+        {
+            auto const bytes = TryBitmapBytes(width, height);
+            return !bytes || pixels.size() < *bytes;
+        }
         // Size in points (image pixels / dpr): the image size shown in the editor.
         Size PointSize() const noexcept { return { width / dpr, height / dpr }; }
 
@@ -32,10 +73,15 @@ namespace Eikon::Core
         static Bitmap Create(std::int32_t width, std::int32_t height, double dpr = 1.0)
         {
             Bitmap bitmap;
-            bitmap.width = width > 0 ? width : 0;
-            bitmap.height = height > 0 ? height : 0;
+            auto const bytes = TryBitmapBytes(width, height);
+            if (!bytes)
+            {
+                return bitmap;
+            }
+            bitmap.width = width;
+            bitmap.height = height;
             bitmap.dpr = dpr;
-            bitmap.pixels.assign(bitmap.Stride() * static_cast<std::size_t>(bitmap.height), 0);
+            bitmap.pixels.assign(*bytes, 0);
             for (std::size_t i = 3; i < bitmap.pixels.size(); i += 4)
             {
                 bitmap.pixels[i] = 0xFF;

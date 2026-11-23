@@ -68,8 +68,6 @@ namespace Eikon
         // For the Library's "Edit in Lucida": loads an image file into the editor.
         // Returns false when it cannot be decoded.
         bool OpenImageFile(std::wstring const& path, double dpr = 1.0);
-        // lucida://uploads: Lucida has no upload history, so it reports the failure.
-        void OpenPastUploads();
 
         // ---- URL scheme ----
         void HandleUrl(std::wstring_view url);

@@ -25,6 +25,51 @@ namespace Eikon
             return std::filesystem::path{ path }.filename().wstring();
         }
 
+        bool IsReparsePoint(std::filesystem::path const& path)
+        {
+            DWORD const attributes = GetFileAttributesW(path.c_str());
+            return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+        }
+
+        bool IsWithinFolder(std::filesystem::path const& folder, std::filesystem::path const& candidate)
+        {
+            std::wstring const base = folder.native();
+            std::wstring const path = candidate.native();
+            if (path.size() < base.size() || CompareStringOrdinal(path.data(), static_cast<int>(path.size()), base.data(), static_cast<int>(base.size()), TRUE) != CSTR_EQUAL)
+            {
+                return false;
+            }
+            return path.size() == base.size() || base.back() == L'\\' || base.back() == L'/' || path[base.size()] == L'\\' || path[base.size()] == L'/';
+        }
+
+        // Database filenames are untrusted.  They must name one direct child, and a reparse target
+        // must remain beneath the canonical library folder.
+        std::optional<std::filesystem::path> LibraryItemPath(std::filesystem::path const& folder, std::wstring_view storedName)
+        {
+            if (folder.empty() || storedName.empty() || storedName == L"." || storedName == L"..")
+            {
+                return std::nullopt;
+            }
+            std::filesystem::path const name{ storedName };
+            if (name.has_root_path() || name.filename() != name)
+            {
+                return std::nullopt;
+            }
+            std::error_code error;
+            auto const canonicalFolder = std::filesystem::weakly_canonical(folder, error);
+            if (error)
+            {
+                return std::nullopt;
+            }
+            auto const item = folder / name;
+            auto const resolved = std::filesystem::weakly_canonical(item, error);
+            if (error || !IsWithinFolder(canonicalFolder, resolved))
+            {
+                return std::nullopt;
+            }
+            return item;
+        }
+
         std::wstring JoinPath(std::wstring const& folder, std::wstring const& name)
         {
             return (std::filesystem::path{ folder } / name).wstring();
@@ -89,7 +134,7 @@ namespace Eikon
         std::optional<FileInfo> InfoOf(std::wstring const& path)
         {
             WIN32_FILE_ATTRIBUTE_DATA data{};
-            if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data) || (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+            if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data) || (data.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)))
             {
                 return std::nullopt;
             }
@@ -101,6 +146,11 @@ namespace Eikon
 
         std::vector<std::uint8_t> ReadAll(std::wstring const& path)
         {
+            auto const info = InfoOf(path);
+            if (!info || info->bytes < 0 || static_cast<std::uint64_t>(info->bytes) > Core::kMaxInputBytes)
+            {
+                return {};
+            }
             std::ifstream file{ std::filesystem::path{ path }, std::ios::binary };
             if (!file)
             {
@@ -125,9 +175,18 @@ namespace Eikon
             {
                 record[std::wstring{ Lib::kWidth }] = std::to_wstring(width);
                 record[std::wstring{ Lib::kHeight }] = std::to_wstring(height);
+                auto const pixelBytes = Core::TryBitmapBytes(static_cast<int>(width), static_cast<int>(height));
+                if (!pixelBytes)
+                {
+                    return record;
+                }
                 // ColorMagic works on the image scaled by 0.2.
                 auto const w = (std::max)(1u, static_cast<std::uint32_t>(width * 0.2));
                 auto const h = (std::max)(1u, static_cast<std::uint32_t>(height * 0.2));
+                if (!Core::TryBitmapBytes(static_cast<int>(w), static_cast<int>(h)))
+                {
+                    return record;
+                }
                 auto const pixels = ImageCodec::DecodeFileScaled(path.c_str(), w, h, false);
                 if (!pixels.empty())
                 {
@@ -164,7 +223,13 @@ namespace Eikon
     {
         std::pair<std::uint32_t, std::uint32_t> PixelSize(std::wstring const& path)
         {
-            (void)CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            HRESULT const initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            auto uninitialize = wil::scope_exit([initialized] {
+                if (SUCCEEDED(initialized))
+                {
+                    CoUninitialize();
+                }
+            });
             winrt::com_ptr<IWICImagingFactory> factory;
             winrt::com_ptr<IWICBitmapDecoder> decoder;
             winrt::com_ptr<IWICBitmapFrameDecode> frame;
@@ -182,7 +247,12 @@ namespace Eikon
         std::optional<Core::Bitmap> Decode(std::wstring const& path, double dpr)
         {
             auto const [width, height] = PixelSize(path);
-            if (width == 0 || height == 0)
+            if (width == 0 || height == 0 || !Core::TryBitmapBytes(static_cast<int>(width), static_cast<int>(height)))
+            {
+                return std::nullopt;
+            }
+            auto const bytes = Core::TryBitmapBytes(static_cast<int>(width), static_cast<int>(height));
+            if (!bytes)
             {
                 return std::nullopt;
             }
@@ -191,7 +261,7 @@ namespace Eikon
             bitmap.height = static_cast<std::int32_t>(height);
             bitmap.dpr = dpr > 0 ? dpr : 1.0;
             bitmap.pixels = ImageCodec::DecodeFileScaled(path.c_str(), width, height, true);
-            if (bitmap.IsEmpty())
+            if (bitmap.pixels.size() < *bytes || bitmap.IsEmpty())
             {
                 return std::nullopt;
             }
@@ -287,8 +357,14 @@ namespace Eikon
         m_newFiles.clear();
         if (!m_folder.empty())
         {
-            auto const bytes = ReadAll(JoinPath(m_folder, Lib::kDatabaseName));
-            m_records = Lib::ParseDatabase(std::string_view{ reinterpret_cast<char const*>(bytes.data()), bytes.size() });
+            auto const folder = std::filesystem::path{ m_folder };
+            auto const database = folder / Lib::kDatabaseName;
+            auto const bytes = ReadAll(database.wstring());
+            auto parsed = Lib::ParseDatabase(std::string_view{ reinterpret_cast<char const*>(bytes.data()), bytes.size() });
+            std::erase_if(parsed, [&](Lib::Record const& record) {
+                return !LibraryItemPath(folder, Lib::Field(record, Lib::kFilename));
+            });
+            m_records = std::move(parsed);
         }
         m_loaded = true;
         RebuildItems();
@@ -321,7 +397,7 @@ namespace Eikon
         }
         for (auto const& entry : it)
         {
-            if (!entry.is_regular_file(error))
+            if (error || !entry.is_regular_file(error) || IsReparsePoint(entry.path()))
             {
                 continue;
             }
@@ -341,10 +417,10 @@ namespace Eikon
         {
             if (NeedsAnalysis(record, allowOcr))
             {
-                auto const path = JoinPath(m_folder, Lib::Field(record, Lib::kFilename));
-                if (InfoOf(path))
+                auto const path = LibraryItemPath(std::filesystem::path{ m_folder }, Lib::Field(record, Lib::kFilename));
+                if (path && InfoOf(path->wstring()))
                 {
-                    stale.push_back(path);
+                    stale.push_back(path->wstring());
                 }
             }
         }
@@ -387,6 +463,11 @@ namespace Eikon
             return;
         }
         auto const name = NameOf(path);
+        auto const itemPath = LibraryItemPath(std::filesystem::path{ m_folder }, name);
+        if (!itemPath)
+        {
+            return;
+        }
         fields[std::wstring{ Lib::kFilename }] = name;
         if (!Lib::IntField(fields, Lib::kTimestamp))
         {
@@ -409,7 +490,7 @@ namespace Eikon
         RebuildItems();
         SaveDatabase();
         Raise();
-        Run({ path });
+        Run({ itemPath->wstring() });
     }
 
     void LibraryIndex::Remove(std::vector<std::wstring> const& paths)
@@ -441,7 +522,12 @@ namespace Eikon
             {
                 continue;
             }
-            item->path = JoinPath(m_folder, item->name);
+            auto const path = LibraryItemPath(std::filesystem::path{ m_folder }, item->name);
+            if (!path)
+            {
+                continue;
+            }
+            item->path = path->wstring();
             item->record = record;
             if (auto const seconds = Lib::IntField(record, Lib::kTimestamp))
             {
@@ -538,11 +624,16 @@ namespace Eikon
         auto lastRaise = started;
         for (std::size_t i = 0; i < files.size() && !cancel->load(); ++i)
         {
-            auto const path = files[i];
+            auto const safePath = LibraryItemPath(std::filesystem::path{ folder }, NameOf(path));
+            if (!safePath || !SameName(safePath->wstring(), path) || !InfoOf(safePath->wstring()))
+            {
+                continue;
+            }
+            std::wstring const checkedPath = safePath->wstring();
             Lib::Record base;
             for (auto const& record : m_records)
             {
-                if (SameName(Lib::Field(record, Lib::kFilename), NameOf(path)))
+                if (SameName(Lib::Field(record, Lib::kFilename), NameOf(checkedPath)))
                 {
                     base = record;
                     break;
@@ -551,16 +642,16 @@ namespace Eikon
 
             co_await winrt::resume_background();
             Lib::Record analysed;
-            bool exists = InfoOf(path).has_value();
+            bool exists = InfoOf(checkedPath).has_value();
             if (exists)
             {
-                analysed = Analyse(path, std::move(base));
+                analysed = Analyse(checkedPath, std::move(base));
                 if (allowOcr)
                 {
                     std::wstring ocr;
                     try
                     {
-                        ocr = std::wstring{ co_await RecognizeTextAsync(ReadAll(path)) };
+                        ocr = std::wstring{ co_await RecognizeTextAsync(ReadAll(checkedPath)) };
                     }
                     catch (...)
                     {
@@ -577,7 +668,7 @@ namespace Eikon
             }
             if (exists)
             {
-                auto const name = NameOf(path);
+                auto const name = NameOf(checkedPath);
                 auto existing = std::find_if(m_records.begin(), m_records.end(), [&](auto const& r) { return SameName(Lib::Field(r, Lib::kFilename), name); });
                 if (existing != m_records.end())
                 {
@@ -801,6 +892,10 @@ namespace Eikon
         std::wstring renamedFrom;
         for (auto const& [action, name] : changes)
         {
+            if (!LibraryItemPath(std::filesystem::path{ m_folder }, name))
+            {
+                continue;
+            }
             switch (action)
             {
             case FILE_ACTION_RENAMED_OLD_NAME:
@@ -837,7 +932,8 @@ namespace Eikon
         auto const before = m_records.size();
         std::erase_if(m_records, [this](auto const& r) {
             auto const name = Lib::Field(r, Lib::kFilename);
-            return !name.empty() && !InfoOf(JoinPath(m_folder, name));
+            auto const itemPath = LibraryItemPath(std::filesystem::path{ m_folder }, name);
+            return !itemPath || !InfoOf(itemPath->wstring());
         });
         changed = changed || m_records.size() != before;
         std::erase_if(m_newFiles, [](auto const& path) { return !InfoOf(path); });
@@ -848,7 +944,12 @@ namespace Eikon
         std::vector<std::wstring> fresh;
         for (auto const& name : added)
         {
-            auto const path = JoinPath(m_folder, name);
+            auto const itemPath = LibraryItemPath(std::filesystem::path{ m_folder }, name);
+            if (!itemPath)
+            {
+                continue;
+            }
+            auto const path = itemPath->wstring();
             auto const info = InfoOf(path);
             if (!info || !Lib::IsImageFile(name) || (!nonShots && !Lib::IsScreenshotName(name)) || findRecord(name) != m_records.end())
             {

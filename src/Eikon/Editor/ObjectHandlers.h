@@ -53,6 +53,8 @@ namespace Eikon::Editor
         // Returns true when a drag ended.
         bool MouseUp(Core::Point image, Modifiers modifiers);
         bool IsDragging() const noexcept { return m_dragId.has_value(); }
+        // Cancels pointer capture without committing a move or a newly-created object.
+        void CancelDrag();
         // Esc step 1: drops an object being created.
         bool CancelCreation();
 

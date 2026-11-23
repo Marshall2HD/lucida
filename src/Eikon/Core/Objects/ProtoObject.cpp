@@ -2,6 +2,7 @@
 #include "Core/Objects/ProtoObject.h"
 
 #include "Core/Objects/Path.h"
+#include "Core/Objects/ObjectSupport.h"
 #include "Core/Settings.h"
 
 #include <algorithm>
@@ -14,7 +15,7 @@ namespace Eikon::Core
         double Number(JsonValue const& object, std::wstring_view key, bool& ok)
         {
             auto const* value = object.Find(key);
-            if (!value || !value->IsNumber())
+            if (!value || !value->IsNumber() || !std::isfinite(value->AsNumber()))
             {
                 ok = false;
                 return 0;
@@ -115,12 +116,13 @@ namespace Eikon::Core
         bool ok = true;
         Rect const loaded{ Number(*r, L"x1", ok), Number(*r, L"y1", ok), Number(*r, L"width", ok), Number(*r, L"height", ok) };
         auto const parsedColor = Color::FromHex(c->AsString());
-        if (!ok || !parsedColor)
+        auto const parsedSize = Support::Int32FromJsonNumber(s->AsNumber());
+        if (!ok || !parsedColor || !parsedSize)
         {
             return false;
         }
         rect = loaded;
-        size = static_cast<std::int32_t>(frintaInt(s->AsNumber()));
+        size = *parsedSize;
         color = *parsedColor;
         return true;
     }

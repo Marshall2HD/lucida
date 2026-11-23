@@ -2,11 +2,14 @@
 
 #include "App.xaml.g.h"
 
+#include <memory>
+
 namespace winrt::Eikon::implementation
 {
     struct App : AppT<App>
     {
         App();
+        ~App();
 
         void OnLaunched(Microsoft::UI::Xaml::LaunchActivatedEventArgs const&);
 
@@ -29,5 +32,7 @@ namespace winrt::Eikon::implementation
         void HandleActivation(Activation const& activation, bool initial);
 
         Microsoft::UI::Dispatching::DispatcherQueue m_dispatcher{ nullptr };
+        winrt::event_token m_activatedToken{};
+        std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
     };
 }

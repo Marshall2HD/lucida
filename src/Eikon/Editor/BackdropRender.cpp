@@ -60,9 +60,15 @@ namespace Eikon::Editor::BackdropRender
             Rect imageRect{};
         };
 
-        DeviceCache& CacheFor(canvas::CanvasDevice const& device)
+        std::vector<DeviceCache>& Caches()
         {
             static std::vector<DeviceCache> caches;
+            return caches;
+        }
+
+        DeviceCache& CacheFor(canvas::CanvasDevice const& device)
+        {
+            auto& caches = Caches();
             for (auto& cache : caches)
             {
                 if (cache.device == device)
@@ -269,6 +275,11 @@ namespace Eikon::Editor::BackdropRender
             }
         }
         return bounds;
+    }
+
+    void ClearDeviceCaches()
+    {
+        Caches().clear();
     }
 
     Core::Backdrop::Layout DocumentLayout(Core::Document const& document)
