@@ -5,10 +5,10 @@ Run from the repository root:  uv run --with resvg-py==0.5.0 --with pillow pytho
 * The app icon is Lucida's Candy mark: a gradient squircle (#FF5A36 -> #B14BFF at 135 degrees under a peach
   highlight top-left and a violet one bottom-right) with Lucide's white "scan" viewfinder and a centre dot,
   rendered with resvg. It is every MSIX logo asset, the .ico, docs/logo.png and the notification logo.
-* The brand images (the status icon eikon-22, the tray menu's 16-menu-eikon, the Library's
-  lib-tool-28-eikon(-hl) and the notification logo 24-notification-logo(-dark)) are drawn with
-  Lucida's mark (brand_images), and so are the status icon's success frame eikon-22-ok (the plate with
-  a check cut out) and its capture-in-progress frames eikon-22-animated-1..5 (marching ants around
+* The brand images (the status icon lucida-22, the tray menu's 16-menu-lucida, the Library's
+  lib-tool-28-lucida(-hl) and the notification logo 24-notification-logo(-dark)) are drawn with
+  Lucida's mark (brand_images), and so are the status icon's success frame lucida-22-ok (the plate with
+  a check cut out) and its capture-in-progress frames lucida-22-animated-1..5 (marching ants around
   the plate's outline) (tray_frames). tools/generate_icons.py draws every other tool and UI image
   (Lucide icons and drawings).
 * The empty editor's welcome panel has no background image: its colour fields are XAML brushes
@@ -19,7 +19,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
-ASSETS = ROOT / "src" / "Eikon" / "Assets"
+ASSETS = ROOT / "src" / "Lucida" / "Assets"
 S = 1024  # master canvas size
 
 
@@ -137,11 +137,11 @@ def brand_images():
 
     images = {
         # Status icon (template, 22 pt @2x): a 32 px plate in a 44 px canvas, glyph cut out.
-        "Tray/eikon-22.png": mark(44, (6, 6, 38, 38), black, plate_rgba=black),
+        "Tray/lucida-22.png": mark(44, (6, 6, 38, 38), black, plate_rgba=black),
         # "Reopen Lucida" tray menu item (template, 16 pt @2x).
-        "Menu/16-menu-eikon.png": mark(32, glyph_box(2, 2, 30, 30), black, bar=2.2),
+        "Menu/16-menu-lucida.png": mark(32, glyph_box(2, 2, 30, 30), black, bar=2.2),
         # Library toolbar "show" tool (28 pt @2x): a template glyph the light Candy toolbar tints.
-        "Library/lib-tool-28-eikon.png": mark(56, glyph_box(10, 10, 46, 46), black, bar=2.6),
+        "Library/lib-tool-28-lucida.png": mark(56, glyph_box(10, 10, 46, 46), black, bar=2.6),
         # Notification logo: the Candy app mark, drawn at 34 pt (@2x), the same in both themes.
         "Preview/24-notification-logo.png": app_icon(68, 68, 1.0),
         "Preview/24-notification-logo-dark.png": app_icon(68, 68, 1.0),
@@ -158,8 +158,8 @@ def svg_png(svg, size):
 
 
 def tray_frames():
-    """The status icon's template frames (44 px, 22 pt @2x), black plus alpha like eikon-22: the success
-    frame is eikon-22's 32 px plate with Lucide's check cut out; the five capture frames are a dashed
+    """The status icon's template frames (44 px, 22 pt @2x), black plus alpha like lucida-22: the success
+    frame is lucida-22's 32 px plate with Lucide's check cut out; the five capture frames are a dashed
     outline of the plate whose dashes advance by a fifth of a period per frame, so they loop."""
     head = '<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">'
     radius = 32 * 220 / 944
@@ -167,7 +167,7 @@ def tray_frames():
           '<path d="M20 6 9 17l-5-5" transform="translate(12 12) scale(0.8333)" fill="none" stroke="black" '
           'stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></mask></defs>'
           f'<rect x="6" y="6" width="32" height="32" rx="{radius:.3f}" fill="black" mask="url(#m)"/></svg>')
-    svg_png(ok, 44).save(ASSETS / "Tray" / "eikon-22-ok.png")
+    svg_png(ok, 44).save(ASSETS / "Tray" / "lucida-22-ok.png")
     # The dashed outline: a 3.5 px stroke on the centre line of a 30 px rounded square.
     side, r, width = 30.0, 7.0, 3.5
     perimeter = 4 * (side - 2 * r) + 2 * 3.141592653589793 * r
@@ -178,7 +178,7 @@ def tray_frames():
         svg = (head + f'<rect x="7" y="7" width="{side}" height="{side}" rx="{r}" fill="none" stroke="black" '
                f'stroke-width="{width}" stroke-dasharray="{dash:.4f} {period - dash:.4f}" '
                f'stroke-dashoffset="{offset:.4f}"/></svg>')
-        svg_png(svg, 44).save(ASSETS / "Tray" / f"eikon-22-animated-{frame}.png")
+        svg_png(svg, 44).save(ASSETS / "Tray" / f"lucida-22-animated-{frame}.png")
 
 
 def main():
@@ -194,7 +194,7 @@ def main():
     for size in (16, 24, 32, 48, 256):
         save_png(f"Square44x44Logo.targetsize-{size}_altform-unplated.png", size, size, 1.0)
     big = glyph(256)
-    big.save(ASSETS / "Eikon.ico", sizes=[(16, 16), (20, 20), (24, 24), (32, 32), (40, 40), (48, 48), (64, 64), (256, 256)])
+    big.save(ASSETS / "Lucida.ico", sizes=[(16, 16), (20, 20), (24, 24), (32, 32), (40, 40), (48, 48), (64, 64), (256, 256)])
     glyph(512).save(ROOT / "docs" / "logo.png")
     brand_images()
     tray_frames()

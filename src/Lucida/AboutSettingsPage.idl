@@ -1,0 +1,8 @@
+namespace Lucida
+{
+    [default_interface]
+    runtimeclass AboutSettingsPage : Microsoft.UI.Xaml.Controls.Page
+    {
+        AboutSettingsPage();
+    }
+}

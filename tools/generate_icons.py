@@ -1,4 +1,4 @@
-"""Renders Lucida's tool and UI icons from Lucide (third_party/lucide) into src/Eikon/Assets, and
+"""Renders Lucida's tool and UI icons from Lucide (third_party/lucide) into src/Lucida/Assets, and
 draws the images Lucide has no icon for (cursors, helper sheets, window-background previews, file
 badges, the drag-out file, the More arrow).
 
@@ -10,7 +10,7 @@ Each PNG keeps the file name and pixel size of the image it replaced, and that i
 alpha (one colour plus alpha, so images the app tints at runtime stay template images):
 
 * Lucide 1.70.0 (lucide-static), ISC: the SVGs used are vendored unmodified in third_party/lucide/icons
-  (third_party/lucide/README.eikon.md).
+  (third_party/lucide/README.lucida.md).
 * Stroke width 1.5 in Lucide's 24-unit viewBox, round caps and joins.
 * `box` is the size in pixels the 24-unit viewBox is drawn at, centred in the image. 0.9 of the
   image's side matches the old glyphs' size for most images; smaller boxes keep the old glyph size
@@ -29,7 +29,7 @@ import resvg_py
 from PIL import Image, ImageChops, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
-ASSETS = ROOT / "src" / "Eikon" / "Assets"
+ASSETS = ROOT / "src" / "Lucida" / "Assets"
 LUCIDE = ROOT / "third_party" / "lucide" / "icons"
 STROKE = 1.5
 

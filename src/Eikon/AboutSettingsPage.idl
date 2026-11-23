@@ -1,8 +1,0 @@
-namespace Eikon
-{
-    [default_interface]
-    runtimeclass AboutSettingsPage : Microsoft.UI.Xaml.Controls.Page
-    {
-        AboutSettingsPage();
-    }
-}

@@ -63,8 +63,8 @@ surfaces). Keep the two in step.
 ## Layout
 
 ```
-Eikon.sln
-src/Eikon/
+Lucida.sln
+src/Lucida/
   App.xaml, Main.cpp            entry point, single instance, protocol/launch activation
   AppController.h/.cpp          owns the services and routes every action
   *.idl/*.xaml                  WinRT classes and XAML (must stay in the project root): EditorWindow,
@@ -109,9 +109,9 @@ src/Eikon/
                                 compose the exported image
     CropTool, ObjectHandlers, CtrlHelper, Cursors, DragOut, TextEditOverlay
     PixelTools                  ruler, colour picker, contrast badge
-tests/Eikon.Core.Tests/         console test runner for Core (built and run in CI)
+tests/Lucida.Core.Tests/         console test runner for Core (built and run in CI)
 tools/generate_assets.py        app icon, MSIX logos, .ico and brand images
-tools/generate_icons.py         Lucide icons, cursors and drawings into src/Eikon/Assets
+tools/generate_icons.py         Lucide icons, cursors and drawings into src/Lucida/Assets
 tools/merge_resw.py             merges conflicting Resources.resw edits
 third_party/                    ZXing-C++ (QR), Lucide icon sources, U²-Net-p model; licences in each folder
 ```
@@ -124,7 +124,7 @@ Everything Lucida ships that it did not write, with its licence (the full text i
 |---|---|---|---|
 | [ZXing-C++](https://github.com/zxing-cpp/zxing-cpp) v3.1.1 | QR codes before OCR | Apache-2.0 (libzueci BSD-3-Clause) | `third_party/zxing-cpp` |
 | [Lucide](https://lucide.dev) 1.70.0 | tool and UI icons, cursor glyphs | ISC (Feather-derived icons MIT) | `third_party/lucide` |
-| [U²-Net-p](https://github.com/xuebinqin/U-2-Net) (ONNX export by [rembg](https://github.com/danielgatis/rembg), MIT) | Cut Out's subject model, embedded in Eikon.exe | Apache-2.0 | `third_party/u2net` |
+| [U²-Net-p](https://github.com/xuebinqin/U-2-Net) (ONNX export by [rembg](https://github.com/danielgatis/rembg), MIT) | Cut Out's subject model, embedded in Lucida.exe | Apache-2.0 | `third_party/u2net` |
 
 Win2D, WebView2, WIL and the Windows App SDK (whose framework package provides the ONNX Runtime that runs
 the model) come from NuGet under their own Microsoft licences.
@@ -152,10 +152,10 @@ the model) come from NuGet under their own Microsoft licences.
 
 ## Packaging
 
-The app is a single-project MSIX (`src/Eikon/Package.appxmanifest`): a full-trust desktop app with the
+The app is a single-project MSIX (`src/Lucida/Package.appxmanifest`): a full-trust desktop app with the
 `lucida` protocol, a startup task ("Run at Startup") and the Windows App SDK framework as a dependency.
-Assets in subfolders of `Assets/` are `Image` items in `Eikon.vcxproj`, so they are packaged. The
-U²-Net-p model is embedded in `Eikon.exe` as an `RCDATA` resource (`Eikon.rc`). CI
+Assets in subfolders of `Assets/` are `Image` items in `Lucida.vcxproj`, so they are packaged. The
+U²-Net-p model is embedded in `Lucida.exe` as an `RCDATA` resource (`Lucida.rc`). CI
 (`.github/workflows/build.yml`) builds x64 and ARM64 sideload packages signed with a throwaway
 certificate and runs the Core tests.
 

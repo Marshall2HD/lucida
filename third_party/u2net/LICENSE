@@ -2,7 +2,7 @@ U²-Net-p weights
 
 The U²-Net project and its U²-Net-p weights are licensed under the Apache License, Version 2.0.
 The bundled u2netp.onnx file is the rembg ONNX export and is MIT licensed; see
-README.eikon.md and ../../THIRD_PARTY_NOTICES.md for its notice.
+README.lucida.md and ../../THIRD_PARTY_NOTICES.md for its notice.
 
                                  Apache License
                            Version 2.0, January 2004

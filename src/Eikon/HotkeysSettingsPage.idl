@@ -1,8 +1,0 @@
-namespace Eikon
-{
-    [default_interface]
-    runtimeclass HotkeysSettingsPage : Microsoft.UI.Xaml.Controls.Page
-    {
-        HotkeysSettingsPage();
-    }
-}

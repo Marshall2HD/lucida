@@ -53,16 +53,16 @@ jobs:
         run: |
           $version = '${{ github.ref_name }}'.Substring(1)
           if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Tag must look like v1.2.3, not ${{ github.ref_name }}" }
-          $manifest = 'src\Eikon\Package.appxmanifest'
+          $manifest = 'src\Lucida\Package.appxmanifest'
           (Get-Content $manifest -Raw) -replace '(<Identity[^>]*?Version=")[^"]+"', "`${1}$version.0`"" | Set-Content $manifest -NoNewline
           Select-String -Path $manifest -Pattern 'Version="' | Select-Object -First 1
 
       - name: Restore
-        run: msbuild Eikon.sln /t:Restore /p:Configuration=${{ env.Configuration }} /p:Platform=${{ matrix.platform }} /v:minimal
+        run: msbuild Lucida.sln /t:Restore /p:Configuration=${{ env.Configuration }} /p:Platform=${{ matrix.platform }} /v:minimal
 
       - name: Build and package
         run: >-
-          msbuild Eikon.sln /m /v:minimal "/clp:ErrorsOnly;Summary" /bl:artifacts\build.binlog
+          msbuild Lucida.sln /m /v:minimal "/clp:ErrorsOnly;Summary" /bl:artifacts\build.binlog
           /p:Configuration=${{ env.Configuration }}
           /p:Platform=${{ matrix.platform }}
           /p:AppxBundle=Never
@@ -140,18 +140,18 @@ jobs:
 
       - uses: microsoft/setup-msbuild@v2
 
-      - name: Build Eikon.Core.Tests
+      - name: Build Lucida.Core.Tests
         run: >-
-          msbuild tests\Eikon.Core.Tests\Eikon.Core.Tests.vcxproj /m /v:minimal "/clp:ErrorsOnly;Summary"
+          msbuild tests\Lucida.Core.Tests\Lucida.Core.Tests.vcxproj /m /v:minimal "/clp:ErrorsOnly;Summary"
           /p:Configuration=Release
           /p:Platform=${{ matrix.platform }}
 
-      - name: Run Eikon.Core.Tests
+      - name: Run Lucida.Core.Tests
         shell: pwsh
         run: |
-          & "tests\Eikon.Core.Tests\bin\${{ matrix.platform }}\Release\Eikon.Core.Tests.exe"
+          & "tests\Lucida.Core.Tests\bin\${{ matrix.platform }}\Release\Lucida.Core.Tests.exe"
           if ($LASTEXITCODE -ne 0) {
-            Write-Error "Eikon.Core.Tests failed ($LASTEXITCODE failed checks)"
+            Write-Error "Lucida.Core.Tests failed ($LASTEXITCODE failed checks)"
             exit 1
           }
 

@@ -46,8 +46,8 @@ They can be changed in Settings → Hotkeys, which can also take over <kbd>Print
 Lucida builds with Visual Studio 2022 or MSBuild on Windows 11:
 
 ```powershell
-msbuild Eikon.sln /t:Restore /p:Configuration=Release /p:Platform=x64
-msbuild Eikon.sln /m /p:Configuration=Release /p:Platform=x64
+msbuild Lucida.sln /t:Restore /p:Configuration=Release /p:Platform=x64
+msbuild Lucida.sln /m /p:Configuration=Release /p:Platform=x64
 ```
 
 See [docs/building.md](docs/building.md) for the requirements, the test runner, a sideload package

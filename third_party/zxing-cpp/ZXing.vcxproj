@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <!--
-    ZXing-C++ 3.1.1, reader only and QR Code only (see README.eikon.md), as a static library linked
+    ZXing-C++ 3.1.1, reader only and QR Code only (see README.lucida.md), as a static library linked
     into Lucida for Platform/Ocr's QR pass.
     Same flags as upstream's CMake for MSVC: ZXING_INTERNAL, the CRT/SCL deprecation switches,
     NOMINMAX and /utf-8. Third-party code: warning level 3, no SDL checks.
