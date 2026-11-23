@@ -624,6 +624,7 @@ namespace Eikon
         auto lastRaise = started;
         for (std::size_t i = 0; i < files.size() && !cancel->load(); ++i)
         {
+            auto const path = files[i];
             auto const safePath = LibraryItemPath(std::filesystem::path{ folder }, NameOf(path));
             if (!safePath || !SameName(safePath->wstring(), path) || !InfoOf(safePath->wstring()))
             {

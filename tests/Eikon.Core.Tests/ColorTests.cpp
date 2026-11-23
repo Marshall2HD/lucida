@@ -367,6 +367,7 @@ TEST(ScaleImage_RejectsInvalidFactorsAndOversizedOutput)
 TEST(TopColors_StringsAndScaledSize)
 {
     Bitmap image = Bitmap::Create(500, 500);
+    for (int y = 0; y < 500; ++y)
     {
         for (int x = 0; x < 500; ++x)
         {

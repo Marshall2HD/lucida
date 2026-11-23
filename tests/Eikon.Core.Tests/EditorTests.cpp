@@ -104,6 +104,7 @@ TEST(Undo_ParseRejectsOutOfRangeIntegers)
 }
 TEST(Framer_FitMarginLadderAndExactHalf)
 {
+    Framer f;
     f.area = { 1000, 800 };
     f.dpr = 1;
     // Exactly half: 0.5, no margin, no ladder.

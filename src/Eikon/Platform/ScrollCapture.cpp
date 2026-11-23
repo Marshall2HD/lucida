@@ -324,7 +324,7 @@ namespace Eikon::ScrollCapture
             params.direction = direction;
             params.dpr = state->dpr;
             params.speed = settings.ScrollingSpeed();
-            params.scrollingMax = (std::min)(settings.ScrollingMax(), 16384);
+            params.scrollingMax = (std::min)(settings.ScrollingMax(), std::int64_t{ 16384 });
             state->reverse = settings.ScrollingReverseAutoscroll();
 
             RECT const& r = state->rect;
